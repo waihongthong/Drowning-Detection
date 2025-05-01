@@ -1,1 +1,18 @@
-text
+# Install GPIO library for Raspberry Pi
+sudo apt install python3-rpi.gpio -y
+
+# Update package list
+sudo apt update
+
+# Install Python3 and pip (if not already installed)
+sudo apt install python3 python3-pip -y
+
+# Install OpenCV (cv2) with Raspberry Pi optimizations
+sudo apt install python3-opencv -y
+
+# Install PyTorch for ARM (Raspberry Pi-compatible version)
+pip3 install torch torchvision --extra-index-url https://download.pytorch.org/whl/arm
+
+pip3 install torch==1.10.0 torchvision==0.11.1 --extra-index-url https://download.pytorch.org/whl/arm
+pip install ultralytics  # Installs YOLOv8
+pip install opencv-python-headless  # Lightweight OpenCV for Pi
