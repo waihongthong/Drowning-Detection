@@ -1,4 +1,12 @@
-torch
-torchvision
-opencv-python
-requests
+# Core Requirements
+flask==2.3.2
+opencv-python==4.7.0.72
+torch==2.0.1
+torchvision==0.15.2
+requests==2.31.0
+RPi.GPIO==0.7.1
+
+# Optional (for better performance)
+numpy==1.24.3
+pyyaml==6.0  # Required by YOLOv5
+tqdm==4.65.0  # Progress bars
