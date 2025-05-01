@@ -16,3 +16,13 @@ pip3 install torch torchvision --extra-index-url https://download.pytorch.org/wh
 pip3 install torch==1.10.0 torchvision==0.11.1 --extra-index-url https://download.pytorch.org/whl/arm
 pip install ultralytics  # Installs YOLOv8
 pip install opencv-python-headless  # Lightweight OpenCV for Pi
+
+(yolov8_env) pi@raspberrypi:~ $ wget http://archive.raspberrypi.org/debian/pool/main/r/raspberrypi-sys-mods/python3-rpi.gpio_0.7.1~buster-1_all.deb
+--2025-05-01 17:10:22--  http://archive.raspberrypi.org/debian/pool/main/r/raspberrypi-sys-mods/python3-rpi.gpio_0.7.1~buster-1_all.deb
+Resolving archive.raspberrypi.org (archive.raspberrypi.org)... 2a00:1098:88:26::1:1, 2a00:1098:88:26::2:1, 2a00:1098:84:1e0::1, ...
+Connecting to archive.raspberrypi.org (archive.raspberrypi.org)|2a00:1098:88:26::1:1|:80... connected.
+HTTP request sent, awaiting response... 404 Not Found
+2025-05-01 17:10:22 ERROR 404: Not Found.
+
+(yolov8_env) pi@raspberrypi:~ $ sudo dpkg -i python3-rpi.gpio_*.deb
+dpkg: error: cannot access archive 'python3-rpi.gpio_*.deb': No such file or directory
