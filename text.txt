@@ -17,66 +17,28 @@ pip3 install torch==1.10.0 torchvision==0.11.1 --extra-index-url https://downloa
 pip install ultralytics  # Installs YOLOv8
 pip install opencv-python-headless  # Lightweight OpenCV for Pi
 
-env) pi@raspberrypi:~/Desktop/drowning $ python3 rpi_testing.py
-(env) pi@raspberrypi:~/Desktop/drowning $ python3 camera_test.py
-===== RASPBERRY PI CAMERA DIAGNOSTIC TOOL =====
-This script will help diagnose camera connection issues
+(env) pi@raspberrypi:~/Desktop/drowning $ python3 rpi_testing.py
+❌ Could not import picamera2. Will try fallback methods.
+Starting drowning detection system...
+Loading YOLOv8 model...
+✅ Model loaded successfully!
+Trying OpenCV camera...
 
-=== SYSTEM CAMERA CHECK ===
-
-Checking for video devices:
-✅ Found video devices:
-crw-rw----+ 1 root video 81, 14 May  4 09:29 /dev/video0
-crw-rw----+ 1 root video 81,  5 May  4 09:29 /dev/video10
-crw-rw----+ 1 root video 81, 10 May  4 09:29 /dev/video11
-crw-rw----+ 1 root video 81, 11 May  4 09:29 /dev/video12
-crw-rw----+ 1 root video 81,  1 May  4 09:29 /dev/video13
-crw-rw----+ 1 root video 81,  2 May  4 09:29 /dev/video14
-crw-rw----+ 1 root video 81,  3 May  4 09:29 /dev/video15
-crw-rw----+ 1 root video 81,  4 May  4 09:29 /dev/video16
-crw-rw----+ 1 root video 81, 12 May  4 09:29 /dev/video18
-crw-rw----+ 1 root video 81,  0 May  4 09:29 /dev/video19
-crw-rw----+ 1 root video 81,  6 May  4 09:29 /dev/video20
-crw-rw----+ 1 root video 81,  7 May  4 09:29 /dev/video21
-crw-rw----+ 1 root video 81,  8 May  4 09:29 /dev/video22
-crw-rw----+ 1 root video 81,  9 May  4 09:29 /dev/video23
-crw-rw----+ 1 root video 81, 13 May  4 09:29 /dev/video31
-
-Checking for Raspberry Pi Camera:
-📊 Pi Camera status: supported=0 detected=0, libcamera interfaces=0
-⚠️ Pi Camera may not be properly connected or enabled
-   Run 'sudo raspi-config' and enable camera in Interfacing Options
-
-=== CAMERA INDEX TEST ===
-
-Testing camera index 0...
-✅ Successfully opened camera with index 0
-❌ Failed to capture frame from camera 0 (attempt 1)
-❌ Failed to capture frame from camera 0 (attempt 2)
-❌ Failed to capture frame from camera 0 (attempt 3)
-❌ Failed to capture frame from camera 0 (attempt 4)
-❌ Failed to capture frame from camera 0 (attempt 5)
-❌ Could not capture any frames from camera 0 after multiple attempts
-
-Testing camera index 1...
-[ WARN:0@3.575] global cap_v4l.cpp:913 open VIDEOIO(V4L2:/dev/video1): can't open camera by index
-[ WARN:0@3.576] global obsensor_stream_channel_v4l2.cpp:82 xioctl ioctl: fd=4, req=-2140645888
-[ WARN:0@3.576] global obsensor_stream_channel_v4l2.cpp:138 queryUvcDeviceInfoList ioctl error return: 25
-[ERROR:0@3.578] global obsensor_uvc_stream_channel.cpp:158 getStreamChannelGroup Camera index out of range
-❌ Could not open camera with index 1
-
-Testing camera index 2...
-[ WARN:0@4.578] global cap_v4l.cpp:913 open VIDEOIO(V4L2:/dev/video2): can't open camera by index
-[ WARN:0@4.579] global obsensor_stream_channel_v4l2.cpp:82 xioctl ioctl: fd=4, req=-2140645888
-[ WARN:0@4.579] global obsensor_stream_channel_v4l2.cpp:138 queryUvcDeviceInfoList ioctl error return: 25
-[ERROR:0@4.581] global obsensor_uvc_stream_channel.cpp:158 getStreamChannelGroup Camera index out of range
-❌ Could not open camera with index 2
-
-❌ NO WORKING CAMERAS FOUND
-Please check:
-1. Camera connections (USB or ribbon cable)
-2. Run 'sudo raspi-config' to enable Pi Camera
-3. Try rebooting your Raspberry Pi
+Trying OpenCV camera access...
+Trying /dev/video0...
+Trying camera index 0...
+Trying camera index 1...
+[ WARN:0@1.757] global cap_v4l.cpp:913 open VIDEOIO(V4L2:/dev/video1): can't open camera by index
+[ WARN:0@1.758] global obsensor_stream_channel_v4l2.cpp:82 xioctl ioctl: fd=4, req=-2140645888
+[ WARN:0@1.758] global obsensor_stream_channel_v4l2.cpp:138 queryUvcDeviceInfoList ioctl error return: 25
+[ERROR:0@1.760] global obsensor_uvc_stream_channel.cpp:158 getStreamChannelGroup Camera index out of range
+Trying camera index 2...
+[ WARN:0@1.760] global cap_v4l.cpp:913 open VIDEOIO(V4L2:/dev/video2): can't open camera by index
+[ WARN:0@1.761] global obsensor_stream_channel_v4l2.cpp:82 xioctl ioctl: fd=4, req=-2140645888
+[ WARN:0@1.761] global obsensor_stream_channel_v4l2.cpp:138 queryUvcDeviceInfoList ioctl error return: 25
+[ERROR:0@1.763] global obsensor_uvc_stream_channel.cpp:158 getStreamChannelGroup Camera index out of range
+❌ Failed to initialize any camera with OpenCV
+❌ Could not initialize any camera. Exiting.
 
 
 
