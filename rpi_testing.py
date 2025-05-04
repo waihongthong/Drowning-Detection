@@ -40,88 +40,206 @@ def trigger_alarm(duration=10):
 
 class PiCamera2Handler:
     def __init__(self, width=640, height=480):
-        self.picam2 = Picamera2()
+        self.picam2 = None
         self.width = width
         self.height = height
         self.frame = None
+        self.last_frame_time = 0
         
     def initialize(self):
         try:
-            # Configure the camera
+            # Create a new Picamera2 instance
+            self.picam2 = Picamera2()
+            
+            # Configure the camera with more explicit settings
             config = self.picam2.create_preview_configuration(
-                main={"size": (self.width, self.height), "format": "RGB888"}
+                main={"size": (self.width, self.height), "format": "RGB888"},
+                controls={"FrameDurationLimits": (33333, 33333)}  # Force 30fps
             )
             self.picam2.configure(config)
             
             # Start the camera
-            self.picam2.start()
-            time.sleep(2)  # Give camera time to warm up
+            self.picam2.start(show_preview=False)
+            print("Camera starting, waiting for initialization...")
             
-            # Try capturing a test frame
-            test_frame = self.picam2.capture_array()
-            if test_frame is not None and test_frame.size > 0:
-                print("✅ PiCamera2 initialized successfully!")
-                cv2.imwrite("camera_test.jpg", test_frame)
-                print("✅ Test image saved as camera_test.jpg")
-                return True
-            else:
-                print("❌ PiCamera2 returned empty test frame")
-                return False
+            # Wait longer for camera to initialize with multiple attempts
+            for i in range(10):  # Try up to 10 times
+                time.sleep(0.5)
+                try:
+                    test_frame = self.picam2.capture_array()
+                    if test_frame is not None and test_frame.size > 0:
+                        print(f"✅ PiCamera2 initialized successfully after {i+1} attempts!")
+                        cv2.imwrite("camera_test.jpg", cv2.cvtColor(test_frame, cv2.COLOR_RGB2BGR))
+                        print("✅ Test image saved as camera_test.jpg")
+                        self.last_frame_time = time.time()
+                        return True
+                except Exception as e:
+                    print(f"Attempt {i+1}: {e}")
+                    continue
+                    
+            print("❌ PiCamera2 could not capture a valid frame after multiple attempts")
+            if self.picam2:
+                self.picam2.close()
+                self.picam2 = None
+            return False
         except Exception as e:
             print(f"❌ Error initializing PiCamera2: {e}")
+            if self.picam2:
+                self.picam2.close()
+                self.picam2 = None
             return False
     
     def read_frame(self):
+        if not self.picam2:
+            return False, None
+            
         try:
             self.frame = self.picam2.capture_array()
             # Convert from RGB to BGR for OpenCV compatibility
             self.frame = cv2.cvtColor(self.frame, cv2.COLOR_RGB2BGR)
+            self.last_frame_time = time.time()
             return True, self.frame
         except Exception as e:
             print(f"❌ Error capturing frame: {e}")
             return False, None
     
+    def is_healthy(self):
+        """Check if camera is healthy based on recent frames"""
+        # If we haven't gotten a frame in 3 seconds, camera is unhealthy
+        return (time.time() - self.last_frame_time) < 3
+    
     def release(self):
         if self.picam2:
-            self.picam2.close()
-            print("✅ PiCamera2 resources released")
+            try:
+                self.picam2.close()
+                print("✅ PiCamera2 resources released")
+            except Exception as e:
+                print(f"❌ Error releasing PiCamera2: {e}")
+            self.picam2 = None
 
 def try_cv2_camera():
-    """Try to initialize camera using OpenCV's VideoCapture"""
+    """Try to initialize camera using OpenCV's VideoCapture with improved settings"""
     print("\nTrying OpenCV camera access...")
     
-    # First try direct device path
-    for i in range(10):  # Try first 10 video devices
+    # First try direct device paths
+    for i in range(10):
         device_path = f"/dev/video{i}"
         if os.path.exists(device_path):
             print(f"Trying {device_path}...")
             cap = cv2.VideoCapture(device_path)
+            
+            # Set explicit camera properties
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            cap.set(cv2.CAP_PROP_FPS, 30)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)
+            
             if cap.isOpened():
-                ret, frame = cap.read()
-                if ret:
-                    print(f"✅ Successfully opened {device_path}")
-                    # Save test image
+                # Try multiple frames to ensure stability
+                success_count = 0
+                for _ in range(5):
+                    ret, frame = cap.read()
+                    if ret and frame is not None and frame.size > 0:
+                        success_count += 1
+                    time.sleep(0.1)
+                
+                if success_count >= 3:  # At least 3 successful frames
+                    print(f"✅ Successfully opened {device_path} with {success_count}/5 test frames")
                     cv2.imwrite(f"test_cv2_{i}.jpg", frame)
-                    print(f"✅ Test image saved as test_cv2_{i}.jpg")
                     return cap
-                cap.release()
+                else:
+                    print(f"⚠️ Device {device_path} opened but returned inconsistent frames")
+                    cap.release()
+            else:
+                print(f"❌ Could not open {device_path}")
     
     # Then try indices
     for i in range(3):
         print(f"Trying camera index {i}...")
         cap = cv2.VideoCapture(i)
+        
+        # Set explicit camera properties
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        cap.set(cv2.CAP_PROP_FPS, 30)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)
+        
         if cap.isOpened():
-            ret, frame = cap.read()
-            if ret:
-                print(f"✅ Successfully opened camera index {i}")
-                # Save test image
+            # Try multiple frames to ensure stability
+            success_count = 0
+            for _ in range(5):
+                ret, frame = cap.read()
+                if ret and frame is not None and frame.size > 0:
+                    success_count += 1
+                time.sleep(0.1)
+            
+            if success_count >= 3:  # At least 3 successful frames
+                print(f"✅ Successfully opened camera index {i} with {success_count}/5 test frames")
                 cv2.imwrite(f"test_cv2_idx_{i}.jpg", frame)
-                print(f"✅ Test image saved as test_cv2_idx_{i}.jpg")
                 return cap
-            cap.release()
+            else:
+                print(f"⚠️ Camera {i} opened but returned inconsistent frames")
+                cap.release()
     
     print("❌ Failed to initialize any camera with OpenCV")
     return None
+
+class OpenCVCameraHandler:
+    """Wrapper class for OpenCV camera with health monitoring"""
+    def __init__(self, cap):
+        self.cap = cap
+        self.last_frame_time = time.time()
+        
+    def read_frame(self):
+        if not self.cap or not self.cap.isOpened():
+            return False, None
+            
+        try:
+            ret, frame = self.cap.read()
+            if ret and frame is not None and frame.size > 0:
+                self.last_frame_time = time.time()
+                return True, frame
+            else:
+                return False, None
+        except Exception as e:
+            print(f"❌ Error reading OpenCV frame: {e}")
+            return False, None
+    
+    def is_healthy(self):
+        """Check if camera is healthy based on recent frames"""
+        if not self.cap or not self.cap.isOpened():
+            return False
+        # If we haven't gotten a frame in 3 seconds, camera is unhealthy
+        return (time.time() - self.last_frame_time) < 3
+    
+    def release(self):
+        if self.cap:
+            try:
+                self.cap.release()
+                print("✅ OpenCV camera resources released")
+            except Exception as e:
+                print(f"❌ Error releasing OpenCV camera: {e}")
+            self.cap = None
+
+def initialize_camera():
+    """Try to initialize any available camera method"""
+    # Try PiCamera2 first (recommended for newer Raspberry Pi)
+    if HAVE_PICAMERA2:
+        print("Initializing PiCamera2...")
+        camera = PiCamera2Handler()
+        if camera.initialize():
+            return camera, "picamera2"
+        else:
+            print("❌ Failed to initialize PiCamera2, trying OpenCV...")
+    
+    # Fallback to OpenCV
+    print("Trying OpenCV camera...")
+    cap = try_cv2_camera()
+    if cap is not None:
+        return OpenCVCameraHandler(cap), "opencv"
+    
+    # No camera available
+    return None, None
 
 def main():
     print("Starting drowning detection system...")
@@ -137,47 +255,53 @@ def main():
         return
     
     # Initialize camera
-    camera = None
-    using_picamera2 = False
-    using_opencv = False
+    camera, camera_type = initialize_camera()
+    if not camera:
+        print("❌ Could not initialize any camera. Exiting.")
+        GPIO.cleanup()
+        return
     
-    # Try PiCamera2 first (recommended for newer Raspberry Pi)
-    if HAVE_PICAMERA2:
-        print("Initializing PiCamera2...")
-        camera = PiCamera2Handler()
-        if camera.initialize():
-            using_picamera2 = True
-        else:
-            print("❌ Failed to initialize PiCamera2, trying OpenCV...")
-            camera = None
-    
-    # Fallback to OpenCV if PiCamera2 fails or isn't available
-    if camera is None:
-        print("Trying OpenCV camera...")
-        cap = try_cv2_camera()
-        if cap is not None:
-            using_opencv = True
-            print("✅ Using OpenCV camera")
-        else:
-            print("❌ Could not initialize any camera. Exiting.")
-            GPIO.cleanup()
-            return
+    print(f"✅ Using {camera_type} camera")
     
     # Variable to track if alarm is active
     alarm_active = False
+    last_camera_check = time.time()
+    camera_recovery_attempts = 0
     
     print("Starting detection loop. Press 'q' to quit.")
     
     try:
         while True:
+            # Camera health check and recovery (every 10 seconds)
+            if time.time() - last_camera_check > 10:
+                last_camera_check = time.time()
+                if not camera.is_healthy():
+                    print("⚠️ Camera appears unhealthy, attempting recovery...")
+                    camera_recovery_attempts += 1
+                    
+                    # Release current camera
+                    camera.release()
+                    
+                    # Try to reinitialize camera
+                    if camera_recovery_attempts < 5:  # Limit recovery attempts
+                        camera, camera_type = initialize_camera()
+                        if camera:
+                            print(f"✅ Camera recovered using {camera_type}")
+                        else:
+                            print("❌ Could not recover camera. Will retry...")
+                            time.sleep(2)  # Wait before next attempt
+                    else:
+                        print("❌ Maximum camera recovery attempts reached. Exiting.")
+                        break
+            
             # Capture frame
-            if using_picamera2:
-                ret, frame = camera.read_frame()
-            elif using_opencv:
-                ret, frame = cap.read()
-            else:
-                print("❌ No camera method available. Exiting.")
-                break
+            if not camera:
+                print("❌ No active camera. Attempting recovery...")
+                time.sleep(1)
+                last_camera_check = 0  # Force camera check on next loop
+                continue
+                
+            ret, frame = camera.read_frame()
                 
             if not ret or frame is None:
                 print("❌ Failed to capture frame, retrying...")
@@ -222,6 +346,12 @@ def main():
                       (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, 
                       (0, 0, 255) if drowning_detected else (0, 255, 0), 2)
             
+            # Add camera info
+            camera_info = f"Camera: {camera_type}"
+            cv2.putText(frame, camera_info, 
+                      (10, frame.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, 
+                      (255, 255, 255), 2)
+            
             # Display the frame
             cv2.imshow("Drowning Detection", frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -236,10 +366,8 @@ def main():
         print(f"❌ Error in main loop: {e}")
     finally:
         # Cleanup
-        if using_picamera2 and camera:
+        if camera:
             camera.release()
-        elif using_opencv:
-            cap.release()
         
         cv2.destroyAllWindows()
         buzzer_pwm.stop()
