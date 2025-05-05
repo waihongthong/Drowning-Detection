@@ -1,19 +1,11 @@
 import time
 import threading
+import subprocess
 import RPi.GPIO as GPIO
 from ultralytics import YOLO
 import cv2
 import numpy as np
 import os
-
-# ----- Check if picamera2 is available -----
-try:
-    from picamera2 import Picamera2
-    HAVE_PICAMERA2 = True
-    print("✅ Successfully imported picamera2")
-except ImportError:
-    HAVE_PICAMERA2 = False
-    print("❌ Could not import picamera2. Will try fallback methods.")
 
 # GPIO Setup
 LED_PIN = 17     # GPIO pin for LED
@@ -37,6 +29,104 @@ def trigger_alarm(duration=10):
     buzzer_pwm.stop()  # Stop buzzer
     GPIO.output(LED_PIN, GPIO.LOW)  # Turn off LED
     print("Alarm stopped")
+
+# ----- Attempt to import picamera2 -----
+try:
+    from picamera2 import Picamera2
+    HAVE_PICAMERA2 = True
+    print("✅ Successfully imported picamera2")
+except ImportError:
+    HAVE_PICAMERA2 = False
+    print("❌ Could not import picamera2. Will try fallback methods.")
+
+class LibCameraHandler:
+    """Use libcamera-still for capturing frames from Raspberry Pi camera"""
+    def __init__(self, width=640, height=480):
+        self.width = width
+        self.height = height
+        self.frame = None
+        self.last_frame_time = 0
+        self.process = None
+        
+    def initialize(self):
+        try:
+            # Check if libcamera-still is available
+            result = subprocess.run(['which', 'libcamera-still'], 
+                                  capture_output=True, text=True)
+            if not result.stdout:
+                print("❌ libcamera-still not found")
+                return False
+                
+            # Take a test image to verify camera works
+            test_path = "test_libcamera.jpg"
+            result = subprocess.run([
+                'libcamera-still', 
+                '-t', '1000',  # Timeout 1 second
+                '--width', str(self.width),
+                '--height', str(self.height),
+                '-o', test_path
+            ], capture_output=True)
+            
+            if result.returncode != 0:
+                print(f"❌ libcamera-still test failed: {result.stderr.decode()}")
+                return False
+                
+            if not os.path.exists(test_path):
+                print("❌ libcamera-still did not create test image")
+                return False
+                
+            test_img = cv2.imread(test_path)
+            if test_img is None or test_img.size == 0:
+                print("❌ Failed to read test image")
+                return False
+                
+            print(f"✅ Successfully tested camera with libcamera-still")
+            self.last_frame_time = time.time()
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error initializing LibCamera: {e}")
+            return False
+    
+    def read_frame(self):
+        try:
+            # Capture a frame using libcamera-still
+            temp_path = "temp_frame.jpg"
+            result = subprocess.run([
+                'libcamera-still', 
+                '-t', '500',  # Timeout 500ms
+                '--immediate',  # Take picture immediately
+                '--width', str(self.width),
+                '--height', str(self.height),
+                '--nopreview',
+                '-o', temp_path
+            ], capture_output=True)
+            
+            if result.returncode != 0:
+                print(f"❌ Failed to capture frame: {result.stderr.decode()}")
+                return False, None
+                
+            frame = cv2.imread(temp_path)
+            if frame is not None and frame.size > 0:
+                self.frame = frame
+                self.last_frame_time = time.time()
+                return True, frame
+            else:
+                print("❌ Failed to read captured frame")
+                return False, None
+                
+        except Exception as e:
+            print(f"❌ Error capturing frame: {e}")
+            return False, None
+    
+    def is_healthy(self):
+        """Check if camera is healthy based on recent frames"""
+        # If we haven't gotten a frame in 3 seconds, camera is unhealthy
+        return (time.time() - self.last_frame_time) < 10  # More tolerance for libcamera
+    
+    def release(self):
+        # Nothing to release for libcamera-still approach
+        pass
 
 class PiCamera2Handler:
     def __init__(self, width=640, height=480):
@@ -116,6 +206,93 @@ class PiCamera2Handler:
             except Exception as e:
                 print(f"❌ Error releasing PiCamera2: {e}")
             self.picam2 = None
+
+class RaspiStillHandler:
+    """Use raspistill for capturing frames from Raspberry Pi camera (legacy)"""
+    def __init__(self, width=640, height=480):
+        self.width = width
+        self.height = height
+        self.frame = None
+        self.last_frame_time = 0
+        
+    def initialize(self):
+        try:
+            # Check if raspistill is available
+            result = subprocess.run(['which', 'raspistill'], 
+                                  capture_output=True, text=True)
+            if not result.stdout:
+                print("❌ raspistill not found")
+                return False
+                
+            # Take a test image to verify camera works
+            test_path = "test_raspistill.jpg"
+            result = subprocess.run([
+                'raspistill', 
+                '-t', '1000',  # Timeout 1 second
+                '-w', str(self.width),
+                '-h', str(self.height),
+                '-o', test_path
+            ], capture_output=True)
+            
+            if result.returncode != 0:
+                print(f"❌ raspistill test failed: {result.stderr.decode()}")
+                return False
+                
+            if not os.path.exists(test_path):
+                print("❌ raspistill did not create test image")
+                return False
+                
+            test_img = cv2.imread(test_path)
+            if test_img is None or test_img.size == 0:
+                print("❌ Failed to read test image")
+                return False
+                
+            print(f"✅ Successfully tested camera with raspistill")
+            self.last_frame_time = time.time()
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error initializing RaspiStill: {e}")
+            return False
+    
+    def read_frame(self):
+        try:
+            # Capture a frame using raspistill
+            temp_path = "temp_frame.jpg"
+            result = subprocess.run([
+                'raspistill', 
+                '-t', '300',  # Timeout 300ms
+                '-n',        # No preview
+                '-w', str(self.width),
+                '-h', str(self.height),
+                '-o', temp_path
+            ], capture_output=True)
+            
+            if result.returncode != 0:
+                print(f"❌ Failed to capture frame: {result.stderr.decode()}")
+                return False, None
+                
+            frame = cv2.imread(temp_path)
+            if frame is not None and frame.size > 0:
+                self.frame = frame
+                self.last_frame_time = time.time()
+                return True, frame
+            else:
+                print("❌ Failed to read captured frame")
+                return False, None
+                
+        except Exception as e:
+            print(f"❌ Error capturing frame: {e}")
+            return False, None
+    
+    def is_healthy(self):
+        """Check if camera is healthy based on recent frames"""
+        # If we haven't gotten a frame in 3 seconds, camera is unhealthy
+        return (time.time() - self.last_frame_time) < 10  # More tolerance for raspistill
+    
+    def release(self):
+        # Nothing to release for raspistill approach
+        pass
 
 def try_cv2_camera():
     """Try to initialize camera using OpenCV's VideoCapture with improved settings"""
@@ -230,7 +407,19 @@ def initialize_camera():
         if camera.initialize():
             return camera, "picamera2"
         else:
-            print("❌ Failed to initialize PiCamera2, trying OpenCV...")
+            print("❌ Failed to initialize PiCamera2, trying other methods...")
+    
+    # Try LibCamera (for Pi OS Bullseye and newer)
+    print("Trying LibCamera...")
+    camera = LibCameraHandler()
+    if camera.initialize():
+        return camera, "libcamera"
+    
+    # Try legacy RaspiStill (for older Pi OS)
+    print("Trying legacy RaspiStill...")
+    camera = RaspiStillHandler()
+    if camera.initialize():
+        return camera, "raspistill"
     
     # Fallback to OpenCV
     print("Trying OpenCV camera...")
