@@ -6,6 +6,12 @@ from ultralytics import YOLO
 import cv2
 import numpy as np
 import os
+import socket
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import socketserver
+from io import BytesIO
+import base64
+from PIL import Image
 
 # GPIO Setup
 LED_PIN = 17     # GPIO pin for LED
@@ -20,6 +26,12 @@ GPIO.output(BUZZER_PIN, GPIO.LOW)
 # Create PWM object for buzzer (frequency 2000 Hz)
 buzzer_pwm = GPIO.PWM(BUZZER_PIN, 2000)
 
+# Global variables for web streaming
+latest_frame = None
+latest_frame_lock = threading.Lock()
+web_server = None
+web_server_thread = None
+
 # Function to trigger alarm for 10 seconds
 def trigger_alarm(duration=10):
     print("🚨 ALARM: Drowning detected!")
@@ -30,14 +42,26 @@ def trigger_alarm(duration=10):
     GPIO.output(LED_PIN, GPIO.LOW)  # Turn off LED
     print("Alarm stopped")
 
-# ----- Attempt to import picamera2 -----
-try:
-    from picamera2 import Picamera2
-    HAVE_PICAMERA2 = True
-    print("✅ Successfully imported picamera2")
-except ImportError:
-    HAVE_PICAMERA2 = False
-    print("❌ Could not import picamera2. Will try fallback methods.")
+# Check if we're running in headless mode (without display)
+HEADLESS_MODE = True  # Default to True to avoid display issues
+
+# Try to detect if we have a GUI environment available
+def check_gui_available():
+    # Check if DISPLAY environment variable is set
+    if "DISPLAY" in os.environ and os.environ["DISPLAY"]:
+        # Try to create a simple window to test if GUI is available
+        try:
+            test_window = cv2.namedWindow("Test", cv2.WINDOW_AUTOSIZE)
+            cv2.destroyWindow("Test")
+            print("✅ GUI display is available")
+            return True
+        except Exception as e:
+            print(f"⚠️ GUI display error: {e}")
+            return False
+    return False
+
+# Set initial HEADLESS_MODE based on GUI availability
+HEADLESS_MODE = not check_gui_available()
 
 class LibCameraHandler:
     """Use libcamera-still for capturing frames from Raspberry Pi camera"""
@@ -46,7 +70,6 @@ class LibCameraHandler:
         self.height = height
         self.frame = None
         self.last_frame_time = 0
-        self.process = None
         
     def initialize(self):
         try:
@@ -121,91 +144,12 @@ class LibCameraHandler:
     
     def is_healthy(self):
         """Check if camera is healthy based on recent frames"""
-        # If we haven't gotten a frame in 3 seconds, camera is unhealthy
+        # If we haven't gotten a frame in 10 seconds, camera is unhealthy
         return (time.time() - self.last_frame_time) < 10  # More tolerance for libcamera
     
     def release(self):
         # Nothing to release for libcamera-still approach
         pass
-
-class PiCamera2Handler:
-    def __init__(self, width=640, height=480):
-        self.picam2 = None
-        self.width = width
-        self.height = height
-        self.frame = None
-        self.last_frame_time = 0
-        
-    def initialize(self):
-        try:
-            # Create a new Picamera2 instance
-            self.picam2 = Picamera2()
-            
-            # Configure the camera with more explicit settings
-            config = self.picam2.create_preview_configuration(
-                main={"size": (self.width, self.height), "format": "RGB888"},
-                controls={"FrameDurationLimits": (33333, 33333)}  # Force 30fps
-            )
-            self.picam2.configure(config)
-            
-            # Start the camera
-            self.picam2.start(show_preview=False)
-            print("Camera starting, waiting for initialization...")
-            
-            # Wait longer for camera to initialize with multiple attempts
-            for i in range(10):  # Try up to 10 times
-                time.sleep(0.5)
-                try:
-                    test_frame = self.picam2.capture_array()
-                    if test_frame is not None and test_frame.size > 0:
-                        print(f"✅ PiCamera2 initialized successfully after {i+1} attempts!")
-                        cv2.imwrite("camera_test.jpg", cv2.cvtColor(test_frame, cv2.COLOR_RGB2BGR))
-                        print("✅ Test image saved as camera_test.jpg")
-                        self.last_frame_time = time.time()
-                        return True
-                except Exception as e:
-                    print(f"Attempt {i+1}: {e}")
-                    continue
-                    
-            print("❌ PiCamera2 could not capture a valid frame after multiple attempts")
-            if self.picam2:
-                self.picam2.close()
-                self.picam2 = None
-            return False
-        except Exception as e:
-            print(f"❌ Error initializing PiCamera2: {e}")
-            if self.picam2:
-                self.picam2.close()
-                self.picam2 = None
-            return False
-    
-    def read_frame(self):
-        if not self.picam2:
-            return False, None
-            
-        try:
-            self.frame = self.picam2.capture_array()
-            # Convert from RGB to BGR for OpenCV compatibility
-            self.frame = cv2.cvtColor(self.frame, cv2.COLOR_RGB2BGR)
-            self.last_frame_time = time.time()
-            return True, self.frame
-        except Exception as e:
-            print(f"❌ Error capturing frame: {e}")
-            return False, None
-    
-    def is_healthy(self):
-        """Check if camera is healthy based on recent frames"""
-        # If we haven't gotten a frame in 3 seconds, camera is unhealthy
-        return (time.time() - self.last_frame_time) < 3
-    
-    def release(self):
-        if self.picam2:
-            try:
-                self.picam2.close()
-                print("✅ PiCamera2 resources released")
-            except Exception as e:
-                print(f"❌ Error releasing PiCamera2: {e}")
-            self.picam2 = None
 
 class RaspiStillHandler:
     """Use raspistill for capturing frames from Raspberry Pi camera (legacy)"""
@@ -287,7 +231,7 @@ class RaspiStillHandler:
     
     def is_healthy(self):
         """Check if camera is healthy based on recent frames"""
-        # If we haven't gotten a frame in 3 seconds, camera is unhealthy
+        # If we haven't gotten a frame in 10 seconds, camera is unhealthy
         return (time.time() - self.last_frame_time) < 10  # More tolerance for raspistill
     
     def release(self):
@@ -433,16 +377,7 @@ class OpenCVCameraHandler:
 
 def initialize_camera():
     """Try to initialize any available camera method"""
-    # Try PiCamera2 first (recommended for newer Raspberry Pi)
-    if HAVE_PICAMERA2:
-        print("Initializing PiCamera2...")
-        camera = PiCamera2Handler()
-        if camera.initialize():
-            return camera, "picamera2"
-        else:
-            print("❌ Failed to initialize PiCamera2, trying other methods...")
-    
-    # Try LibCamera (for Pi OS Bullseye and newer)
+    # Try LibCamera first (for Pi OS Bullseye and newer)
     print("Trying LibCamera...")
     camera = LibCameraHandler()
     if camera.initialize():
@@ -463,8 +398,185 @@ def initialize_camera():
     # No camera available
     return None, None
 
+def save_detection_image(frame, results, drowning_detected):
+    """Save detection image with bounding boxes and information"""
+    # Create a copy of the frame
+    output_frame = frame.copy()
+    
+    # Process results (same as in main loop)
+    for result in results:
+        boxes = result.boxes
+        for box in boxes:
+            class_id = int(box.cls)
+            confidence = float(box.conf)
+            class_name = result.names[class_id]
+            
+            if class_name == 'drowning' and confidence > 0.5:
+                # Get bounding box coordinates
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                
+                # Draw bounding box and label
+                cv2.rectangle(output_frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
+                label = f"DROWNING {confidence:.2f}"
+                cv2.putText(output_frame, label, (x1, y1-10), 
+                          cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
+    
+    # Add status text
+    status = "DROWNING DETECTED" if drowning_detected else "Monitoring"
+    cv2.putText(output_frame, "Status: " + status, 
+              (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, 
+              (0, 0, 255) if drowning_detected else (0, 255, 0), 2)
+    
+    # Add timestamp
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    cv2.putText(output_frame, timestamp, 
+              (10, output_frame.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, 
+              (255, 255, 255), 2)
+    
+    # Save the image
+    if drowning_detected:
+        filename = f"drowning_alert_{int(time.time())}.jpg"
+    else:
+        filename = f"detection_{int(time.time())}.jpg"
+    
+    cv2.imwrite(filename, output_frame)
+    print(f"Image saved: {filename}")
+    return filename
+
+# Web streaming handler
+class StreamingHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        global latest_frame
+        
+        if self.path == '/':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
+            
+            # HTML page with auto-refresh
+            self.wfile.write(bytes('''
+            <html>
+            <head>
+                <title>Raspberry Pi Drowning Detection</title>
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <style>
+                    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; text-align: center; background-color: #f0f0f0; }
+                    h1 { color: #333; }
+                    .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+                    img { max-width: 100%; height: auto; border: 1px solid #ddd; }
+                    .status { font-size: 20px; margin: 20px 0; }
+                    .footer { margin-top: 30px; font-size: 14px; color: #777; }
+                </style>
+                <script>
+                    function refreshImage() {
+                        document.getElementById('stream').src = "/stream?" + new Date().getTime();
+                    }
+                    setInterval(refreshImage, 1000);  // Refresh image every 1 second
+                </script>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>Drowning Detection Monitor</h1>
+                    <div class="status">Status: Running</div>
+                    <img id="stream" src="/stream" />
+                    <div class="footer">
+                        <p>Raspberry Pi Drowning Detection System</p>
+                        <p id="time"></p>
+                        <script>
+                            function updateTime() {
+                                document.getElementById('time').innerHTML = new Date().toLocaleString();
+                            }
+                            setInterval(updateTime, 1000);
+                            updateTime();
+                        </script>
+                    </div>
+                </div>
+            </body>
+            </html>
+            ''', 'utf-8'))
+            
+        elif self.path.startswith('/stream'):
+            self.send_response(200)
+            self.send_header('Content-type', 'image/jpeg')
+            self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, pre-check=0, post-check=0, max-age=0')
+            self.send_header('Pragma', 'no-cache')
+            self.send_header('Expires', '0')
+            self.end_headers()
+            
+            # Return the latest frame as JPEG
+            with latest_frame_lock:
+                if latest_frame is not None:
+                    # Convert the OpenCV frame to JPEG
+                    _, buffer = cv2.imencode('.jpg', latest_frame)
+                    self.wfile.write(buffer.tobytes())
+                else:
+                    # If no frame is available, send a placeholder image
+                    placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
+                    cv2.putText(placeholder, "No camera feed available", (120, 240), 
+                              cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+                    _, buffer = cv2.imencode('.jpg', placeholder)
+                    self.wfile.write(buffer.tobytes())
+        else:
+            self.send_error(404)
+    
+    def log_message(self, format, *args):
+        # Suppress HTTP request logs to keep console clean
+        return
+
+class StreamingServer(socketserver.ThreadingMixIn, HTTPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+def get_local_ip():
+    """Get the local IP address of the Raspberry Pi"""
+    try:
+        # Create a socket connection to an external server
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"  # Fallback to localhost
+
+def start_web_server():
+    """Start the web server in a separate thread"""
+    global web_server, web_server_thread
+    
+    ip = get_local_ip()
+    port = 8000
+    
+    try:
+        web_server = StreamingServer((ip, port), StreamingHandler)
+        web_server_thread = threading.Thread(target=web_server.serve_forever)
+        web_server_thread.daemon = True
+        web_server_thread.start()
+        print(f"✅ Web server started - Access at: http://{ip}:{port}")
+        return True
+    except Exception as e:
+        print(f"❌ Failed to start web server: {e}")
+        return False
+
+def stop_web_server():
+    """Stop the web server thread"""
+    global web_server
+    if web_server:
+        web_server.shutdown()
+        web_server = None
+        print("✅ Web server stopped")
+
 def main():
+    global latest_frame, HEADLESS_MODE
+    
     print("Starting drowning detection system...")
+    print("Running in headless mode (no GUI display)" if HEADLESS_MODE else "Running with GUI display")
+    
+    # Create output directory if it doesn't exist
+    os.makedirs("detections", exist_ok=True)
+    
+    # Start web server in headless mode
+    if HEADLESS_MODE:
+        start_web_server()
     
     # Load YOLOv8 model
     print("Loading YOLOv8 model...")
@@ -474,6 +586,7 @@ def main():
     except Exception as e:
         print(f"❌ Error loading model: {e}")
         GPIO.cleanup()
+        stop_web_server()
         return
     
     # Initialize camera
@@ -481,6 +594,7 @@ def main():
     if not camera:
         print("❌ Could not initialize any camera. Exiting.")
         GPIO.cleanup()
+        stop_web_server()
         return
     
     print(f"✅ Using {camera_type} camera")
@@ -489,8 +603,10 @@ def main():
     alarm_active = False
     last_camera_check = time.time()
     camera_recovery_attempts = 0
+    last_save_time = 0  # For periodic image saving
     
-    print("Starting detection loop. Press 'q' to quit.")
+    print("Starting detection loop. Press Ctrl+C to quit.")
+    print(f"If running in headless mode, camera feed is available via web browser")
     
     try:
         while True:
@@ -530,6 +646,14 @@ def main():
                 time.sleep(0.5)
                 continue
             
+            # Update latest frame for web streaming
+            with latest_frame_lock:
+                latest_frame = frame.copy()
+            
+            # Print a periodic status message (every 30 seconds)
+            if int(time.time()) % 30 == 0:  # Every 30 seconds
+                print(f"✅ Camera running: {camera_type}")
+            
             # Run YOLOv8 detection
             results = model(frame, verbose=False)
             
@@ -543,41 +667,77 @@ def main():
                     class_name = model.names[class_id]
                     
                     if class_name == 'drowning' and confidence > 0.5:
-                        # Get bounding box coordinates
-                        x1, y1, x2, y2 = map(int, box.xyxy[0])
-                        
-                        # Draw bounding box and label
-                        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
-                        label = f"DROWNING {confidence:.2f}"
-                        cv2.putText(frame, label, (x1, y1-10), 
-                                  cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
                         drowning_detected = True
+                        # Details are logged when saving image
             
             # Trigger alarm if drowning detected (and alarm not already active)
             if drowning_detected and not alarm_active:
                 alarm_active = True
+                # Save detection image when drowning is detected
+                save_detection_image(frame, results, drowning_detected)
                 threading.Thread(target=trigger_alarm).start()
             
             # Reset alarm status after it finishes
             if not drowning_detected and alarm_active:
                 alarm_active = False
             
-            # Add status text
-            status = "DROWNING DETECTED" if drowning_detected else "Monitoring"
-            cv2.putText(frame, "Status: " + status, 
-                      (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, 
-                      (0, 0, 255) if drowning_detected else (0, 255, 0), 2)
+            # Periodically save detection images
+            if time.time() - last_save_time > 60:  # Every 60 seconds
+                last_save_time = time.time()
+                save_detection_image(frame, results, drowning_detected)
             
-            # Add camera info
-            camera_info = f"Camera: {camera_type}"
-            cv2.putText(frame, camera_info, 
-                      (10, frame.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, 
-                      (255, 255, 255), 2)
-            
-            # Display the frame
-            cv2.imshow("Drowning Detection", frame)
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
+            # In display mode, show the frame
+            if not HEADLESS_MODE:
+                # Create a frame with detections for display
+                display_frame = frame.copy()
+                
+                # Draw detections on display frame
+                for result in results:
+                    boxes = result.boxes
+                    for box in boxes:
+                        class_id = int(box.cls)
+                        confidence = float(box.conf)
+                        class_name = model.names[class_id]
+                        
+                        if class_name == 'drowning' and confidence > 0.5:
+                            # Get bounding box coordinates
+                            x1, y1, x2, y2 = map(int, box.xyxy[0])
+                            
+                            # Draw bounding box and label
+                            cv2.rectangle(display_frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
+                            label = f"DROWNING {confidence:.2f}"
+                            cv2.putText(display_frame, label, (x1, y1-10), 
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
+                
+                # Add status text
+                status = "DROWNING DETECTED" if drowning_detected else "Monitoring"
+                cv2.putText(display_frame, "Status: " + status, 
+                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, 
+                        (0, 0, 255) if drowning_detected else (0, 255, 0), 2)
+                
+                # Add camera info
+                camera_info = f"Camera: {camera_type}"
+                cv2.putText(display_frame, camera_info, 
+                        (10, display_frame.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, 
+                        (255, 255, 255), 2)
+                
+                try:
+                    # Display the frame
+                    cv2.imshow("Drowning Detection", display_frame)
+                    key = cv2.waitKey(1) & 0xFF
+                    if key == ord('q'):
+                        print("Quitting due to 'q' key press...")
+                        break
+                    elif key == ord('s'):
+                        # Save current frame on 's' key press
+                        save_detection_image(frame, results, drowning_detected)
+                except Exception as e:
+                    print(f"⚠️ Display error: {e}")
+                    print("Switching to headless mode...")
+                    HEADLESS_MODE = True
+                    # Start web server if we're switching to headless mode
+                    if not web_server:
+                        start_web_server()
             
             # Small delay to reduce CPU usage
             time.sleep(0.05)
@@ -591,7 +751,16 @@ def main():
         if camera:
             camera.release()
         
-        cv2.destroyAllWindows()
+        # Only try to close windows in display mode
+        if not HEADLESS_MODE:
+            try:
+                cv2.destroyAllWindows()
+            except Exception as e:
+                print(f"Error closing OpenCV windows: {e}")
+        
+        # Stop web server if running
+        stop_web_server()
+        
         buzzer_pwm.stop()
         GPIO.cleanup()
         print("✅ Resources released.")
