@@ -17,25 +17,10 @@ pip3 install torch==1.10.0 torchvision==0.11.1 --extra-index-url https://downloa
 pip install ultralytics  # Installs YOLOv8
 pip install opencv-python-headless  # Lightweight OpenCV for Pi
 
-(env) pi@raspberrypi:~/Desktop/drowning $ python3 rpi_testing.py
-Starting drowning detection system...
-Starting web server for remote viewing...
-✅ Web server started - Access at: http://10.207.203.53:8000
-Loading YOLOv8 model...
-✅ Model loaded successfully!
-Available video devices:
-ls: cannot access '/dev/video*': No such file or directory
-
-Trying LibCamera...
-Testing libcamera-still...
-✅ Successfully tested camera with libcamera-still
-✅ LibCamera initialized successfully!
-✅ Using libcamera camera
+(env) pi@raspberrypi:~/Desktop/drowning $ python3 drowning_detection_wsapp.py
 Traceback (most recent call last):
-  File "/home/pi/Desktop/drowning/rpi_testing.py", line 749, in <module>
-    main()
-  File "/home/pi/Desktop/drowning/rpi_testing.py", line 578, in main
-    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-cv2.error: OpenCV(4.11.0) /io/opencv/modules/highgui/src/window.cpp:1284: error: (-2:Unspecified error) The function is not implemented. Rebuild the library with Windows, GTK+ 2.x or Cocoa support. If you are on Ubuntu or Debian, install libgtk2.0-dev and pkg-config, then re-run cmake or configure script in function 'cvNamedWindow'
+  File "/home/pi/Desktop/drowning/drowning_detection_wsapp.py", line 6, in <module>
+    from google.oauth2 import service_account
+ModuleNotFoundError: No module named 'google'
 
 
