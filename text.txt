@@ -22,18 +22,19 @@ pip install opencv-python-headless  # Lightweight OpenCV for Pi
 Starting drowning detection system...
 Loading YOLOv8 model...
 ✅ Model loaded successfully!
-Trying OpenCV camera...
+Trying LibCamera...
+✅ Successfully tested camera with libcamera-still
+✅ Using libcamera camera
+Starting detection loop. Press 'q' to quit.
+q
+❌ Error in main loop: OpenCV(4.11.0) /io/opencv/modules/highgui/src/window.cpp:1301: error: (-2:Unspecified error) The function is not implemented. Rebuild the library with Windows, GTK+ 2.x or Cocoa support. If you are on Ubuntu or Debian, install libgtk2.0-dev and pkg-config, then re-run cmake or configure script in function 'cvShowImage'
 
-Trying OpenCV camera access...
-Trying /dev/video0...
-Trying camera index 0...
-Trying camera index 1...
-[ WARN:0@1.757] global cap_v4l.cpp:913 open VIDEOIO(V4L2:/dev/video1): can't open camera by index
-[ WARN:0@1.758] global obsensor_stream_channel_v4l2.cpp:82 xioctl ioctl: fd=4, req=-2140645888
-[ WARN:0@1.758] global obsensor_stream_channel_v4l2.cpp:138 queryUvcDeviceInfoList ioctl error return: 25
-[ERROR:0@1.760] global obsensor_uvc_stream_channel.cpp:158 getStreamChannelGroup Camera index out of range
-Trying camera index 2...
-[ WARN:0@1.760] global cap_v4l.cpp:913 open VIDEOIO(V4L2:/dev/video2): can't open camera by index
+Traceback (most recent call last):
+  File "/home/pi/Desktop/drowning/rpi_testing.py", line 600, in <module>
+    main()
+  File "/home/pi/Desktop/drowning/rpi_testing.py", line 594, in main
+    cv2.destroyAllWindows()
+cv2.error: OpenCV(4.11.0) /io/opencv/modules/highgui/src/window.cpp:1295: error: (-2:Unspecified error) The function is not implemented. Rebuild the library with Windows, GTK+ 2.x or Cocoa support. If you are on Ubuntu or Debian, install libgtk2.0-dev and pkg-config, then re-run cmake or configure script in function 'cvDestroyAllWindows'
 [ WARN:0@1.761] global obsensor_stream_channel_v4l2.cpp:82 xioctl ioctl: fd=4, req=-2140645888
 [ WARN:0@1.761] global obsensor_stream_channel_v4l2.cpp:138 queryUvcDeviceInfoList ioctl error return: 25
 [ERROR:0@1.763] global obsensor_uvc_stream_channel.cpp:158 getStreamChannelGroup Camera index out of range
