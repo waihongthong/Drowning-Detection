@@ -10,8 +10,6 @@ import socket
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import socketserver
 from io import BytesIO
-import base64
-from PIL import Image
 
 # GPIO Setup
 LED_PIN = 17     # GPIO pin for LED
@@ -42,272 +40,11 @@ def trigger_alarm(duration=10):
     GPIO.output(LED_PIN, GPIO.LOW)  # Turn off LED
     print("Alarm stopped")
 
-# Check if we're running in headless mode (without display)
-HEADLESS_MODE = True  # Default to True to avoid display issues
-
-# Try to detect if we have a GUI environment available
-def check_gui_available():
-    # Check if DISPLAY environment variable is set
-    if "DISPLAY" in os.environ and os.environ["DISPLAY"]:
-        # Try to create a simple window to test if GUI is available
-        try:
-            test_window = cv2.namedWindow("Test", cv2.WINDOW_AUTOSIZE)
-            cv2.destroyWindow("Test")
-            print("✅ GUI display is available")
-            return True
-        except Exception as e:
-            print(f"⚠️ GUI display error: {e}")
-            return False
-    return False
-
-# Set initial HEADLESS_MODE based on GUI availability
-HEADLESS_MODE = not check_gui_available()
-
-class LibCameraHandler:
-    """Use libcamera-still for capturing frames from Raspberry Pi camera"""
-    def __init__(self, width=640, height=480):
-        self.width = width
-        self.height = height
-        self.frame = None
-        self.last_frame_time = 0
-        
-    def initialize(self):
-        try:
-            # Check if libcamera-still is available
-            result = subprocess.run(['which', 'libcamera-still'], 
-                                  capture_output=True, text=True)
-            if not result.stdout:
-                print("❌ libcamera-still not found")
-                return False
-                
-            # Take a test image to verify camera works
-            test_path = "test_libcamera.jpg"
-            result = subprocess.run([
-                'libcamera-still', 
-                '-t', '1000',  # Timeout 1 second
-                '--width', str(self.width),
-                '--height', str(self.height),
-                '-o', test_path
-            ], capture_output=True)
-            
-            if result.returncode != 0:
-                print(f"❌ libcamera-still test failed: {result.stderr.decode()}")
-                return False
-                
-            if not os.path.exists(test_path):
-                print("❌ libcamera-still did not create test image")
-                return False
-                
-            test_img = cv2.imread(test_path)
-            if test_img is None or test_img.size == 0:
-                print("❌ Failed to read test image")
-                return False
-                
-            print(f"✅ Successfully tested camera with libcamera-still")
-            self.last_frame_time = time.time()
-            return True
-            
-        except Exception as e:
-            print(f"❌ Error initializing LibCamera: {e}")
-            return False
-    
-    def read_frame(self):
-        try:
-            # Capture a frame using libcamera-still
-            temp_path = "temp_frame.jpg"
-            result = subprocess.run([
-                'libcamera-still', 
-                '-t', '500',  # Timeout 500ms
-                '--immediate',  # Take picture immediately
-                '--width', str(self.width),
-                '--height', str(self.height),
-                '--nopreview',
-                '-o', temp_path
-            ], capture_output=True)
-            
-            if result.returncode != 0:
-                print(f"❌ Failed to capture frame: {result.stderr.decode()}")
-                return False, None
-                
-            frame = cv2.imread(temp_path)
-            if frame is not None and frame.size > 0:
-                self.frame = frame
-                self.last_frame_time = time.time()
-                return True, frame
-            else:
-                print("❌ Failed to read captured frame")
-                return False, None
-                
-        except Exception as e:
-            print(f"❌ Error capturing frame: {e}")
-            return False, None
-    
-    def is_healthy(self):
-        """Check if camera is healthy based on recent frames"""
-        # If we haven't gotten a frame in 10 seconds, camera is unhealthy
-        return (time.time() - self.last_frame_time) < 10  # More tolerance for libcamera
-    
-    def release(self):
-        # Nothing to release for libcamera-still approach
-        pass
-
-class RaspiStillHandler:
-    """Use raspistill for capturing frames from Raspberry Pi camera (legacy)"""
-    def __init__(self, width=640, height=480):
-        self.width = width
-        self.height = height
-        self.frame = None
-        self.last_frame_time = 0
-        
-    def initialize(self):
-        try:
-            # Check if raspistill is available
-            result = subprocess.run(['which', 'raspistill'], 
-                                  capture_output=True, text=True)
-            if not result.stdout:
-                print("❌ raspistill not found")
-                return False
-                
-            # Take a test image to verify camera works
-            test_path = "test_raspistill.jpg"
-            result = subprocess.run([
-                'raspistill', 
-                '-t', '1000',  # Timeout 1 second
-                '-w', str(self.width),
-                '-h', str(self.height),
-                '-o', test_path
-            ], capture_output=True)
-            
-            if result.returncode != 0:
-                print(f"❌ raspistill test failed: {result.stderr.decode()}")
-                return False
-                
-            if not os.path.exists(test_path):
-                print("❌ raspistill did not create test image")
-                return False
-                
-            test_img = cv2.imread(test_path)
-            if test_img is None or test_img.size == 0:
-                print("❌ Failed to read test image")
-                return False
-                
-            print(f"✅ Successfully tested camera with raspistill")
-            self.last_frame_time = time.time()
-            return True
-            
-        except Exception as e:
-            print(f"❌ Error initializing RaspiStill: {e}")
-            return False
-    
-    def read_frame(self):
-        try:
-            # Capture a frame using raspistill
-            temp_path = "temp_frame.jpg"
-            result = subprocess.run([
-                'raspistill', 
-                '-t', '300',  # Timeout 300ms
-                '-n',        # No preview
-                '-w', str(self.width),
-                '-h', str(self.height),
-                '-o', temp_path
-            ], capture_output=True)
-            
-            if result.returncode != 0:
-                print(f"❌ Failed to capture frame: {result.stderr.decode()}")
-                return False, None
-                
-            frame = cv2.imread(temp_path)
-            if frame is not None and frame.size > 0:
-                self.frame = frame
-                self.last_frame_time = time.time()
-                return True, frame
-            else:
-                print("❌ Failed to read captured frame")
-                return False, None
-                
-        except Exception as e:
-            print(f"❌ Error capturing frame: {e}")
-            return False, None
-    
-    def is_healthy(self):
-        """Check if camera is healthy based on recent frames"""
-        # If we haven't gotten a frame in 10 seconds, camera is unhealthy
-        return (time.time() - self.last_frame_time) < 10  # More tolerance for raspistill
-    
-    def release(self):
-        # Nothing to release for raspistill approach
-        pass
-
 def try_cv2_camera():
     """Try to initialize camera using OpenCV's VideoCapture with improved settings"""
     print("\nTrying OpenCV camera access...")
     
-    # Try V4L2 backend explicitly first (recommended for Raspberry Pi)
-    print("Trying V4L2 backend explicitly...")
-    try:
-        # Use VideoCapture with explicit V4L2 backend
-        cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
-        
-        # Set explicit camera properties
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        cap.set(cv2.CAP_PROP_FPS, 30)
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)
-        
-        if cap.isOpened():
-            # Try multiple frames to ensure stability
-            success_count = 0
-            for _ in range(5):
-                ret, frame = cap.read()
-                if ret and frame is not None and frame.size > 0:
-                    success_count += 1
-                time.sleep(0.1)
-            
-            if success_count >= 3:  # At least 3 successful frames
-                print(f"✅ Successfully opened camera with V4L2 backend ({success_count}/5 test frames)")
-                cv2.imwrite("test_cv2_v4l2.jpg", frame)
-                return cap
-            else:
-                print("⚠️ Camera opened with V4L2 but returned inconsistent frames")
-                cap.release()
-        else:
-            print("❌ Could not open camera with V4L2 backend")
-    except Exception as e:
-        print(f"❌ Error with V4L2 backend: {e}")
-    
-    # First try direct device paths
-    for i in range(10):
-        device_path = f"/dev/video{i}"
-        if os.path.exists(device_path):
-            print(f"Trying {device_path}...")
-            cap = cv2.VideoCapture(device_path)
-            
-            # Set explicit camera properties
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-            cap.set(cv2.CAP_PROP_FPS, 30)
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)
-            
-            if cap.isOpened():
-                # Try multiple frames to ensure stability
-                success_count = 0
-                for _ in range(5):
-                    ret, frame = cap.read()
-                    if ret and frame is not None and frame.size > 0:
-                        success_count += 1
-                    time.sleep(0.1)
-                
-                if success_count >= 3:  # At least 3 successful frames
-                    print(f"✅ Successfully opened {device_path} with {success_count}/5 test frames")
-                    cv2.imwrite(f"test_cv2_{i}.jpg", frame)
-                    return cap
-                else:
-                    print(f"⚠️ Device {device_path} opened but returned inconsistent frames")
-                    cap.release()
-            else:
-                print(f"❌ Could not open {device_path}")
-    
-    # Then try indices
+    # Try different camera indices
     for i in range(3):
         print(f"Trying camera index {i}...")
         cap = cv2.VideoCapture(i)
@@ -319,20 +56,13 @@ def try_cv2_camera():
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)
         
         if cap.isOpened():
-            # Try multiple frames to ensure stability
-            success_count = 0
-            for _ in range(5):
-                ret, frame = cap.read()
-                if ret and frame is not None and frame.size > 0:
-                    success_count += 1
-                time.sleep(0.1)
-            
-            if success_count >= 3:  # At least 3 successful frames
-                print(f"✅ Successfully opened camera index {i} with {success_count}/5 test frames")
-                cv2.imwrite(f"test_cv2_idx_{i}.jpg", frame)
+            # Try to grab a test frame
+            ret, frame = cap.read()
+            if ret and frame is not None and frame.size > 0:
+                print(f"✅ Successfully opened camera index {i}")
                 return cap
             else:
-                print(f"⚠️ Camera {i} opened but returned inconsistent frames")
+                print(f"⚠️ Camera {i} opened but couldn't grab frame")
                 cap.release()
     
     print("❌ Failed to initialize any camera with OpenCV")
@@ -374,29 +104,6 @@ class OpenCVCameraHandler:
             except Exception as e:
                 print(f"❌ Error releasing OpenCV camera: {e}")
             self.cap = None
-
-def initialize_camera():
-    """Try to initialize any available camera method"""
-    # Try LibCamera first (for Pi OS Bullseye and newer)
-    print("Trying LibCamera...")
-    camera = LibCameraHandler()
-    if camera.initialize():
-        return camera, "libcamera"
-    
-    # Try legacy RaspiStill (for older Pi OS)
-    print("Trying legacy RaspiStill...")
-    camera = RaspiStillHandler()
-    if camera.initialize():
-        return camera, "raspistill"
-    
-    # Fallback to OpenCV
-    print("Trying OpenCV camera...")
-    cap = try_cv2_camera()
-    if cap is not None:
-        return OpenCVCameraHandler(cap), "opencv"
-    
-    # No camera available
-    return None, None
 
 def save_detection_image(frame, results, drowning_detected):
     """Save detection image with bounding boxes and information"""
@@ -443,140 +150,13 @@ def save_detection_image(frame, results, drowning_detected):
     print(f"Image saved: {filename}")
     return filename
 
-# Web streaming handler
-class StreamingHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        global latest_frame
-        
-        if self.path == '/':
-            self.send_response(200)
-            self.send_header('Content-type', 'text/html')
-            self.end_headers()
-            
-            # HTML page with auto-refresh
-            self.wfile.write(bytes('''
-            <html>
-            <head>
-                <title>Raspberry Pi Drowning Detection</title>
-                <meta name="viewport" content="width=device-width, initial-scale=1">
-                <style>
-                    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; text-align: center; background-color: #f0f0f0; }
-                    h1 { color: #333; }
-                    .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-                    img { max-width: 100%; height: auto; border: 1px solid #ddd; }
-                    .status { font-size: 20px; margin: 20px 0; }
-                    .footer { margin-top: 30px; font-size: 14px; color: #777; }
-                </style>
-                <script>
-                    function refreshImage() {
-                        document.getElementById('stream').src = "/stream?" + new Date().getTime();
-                    }
-                    setInterval(refreshImage, 1000);  // Refresh image every 1 second
-                </script>
-            </head>
-            <body>
-                <div class="container">
-                    <h1>Drowning Detection Monitor</h1>
-                    <div class="status">Status: Running</div>
-                    <img id="stream" src="/stream" />
-                    <div class="footer">
-                        <p>Raspberry Pi Drowning Detection System</p>
-                        <p id="time"></p>
-                        <script>
-                            function updateTime() {
-                                document.getElementById('time').innerHTML = new Date().toLocaleString();
-                            }
-                            setInterval(updateTime, 1000);
-                            updateTime();
-                        </script>
-                    </div>
-                </div>
-            </body>
-            </html>
-            ''', 'utf-8'))
-            
-        elif self.path.startswith('/stream'):
-            self.send_response(200)
-            self.send_header('Content-type', 'image/jpeg')
-            self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, pre-check=0, post-check=0, max-age=0')
-            self.send_header('Pragma', 'no-cache')
-            self.send_header('Expires', '0')
-            self.end_headers()
-            
-            # Return the latest frame as JPEG
-            with latest_frame_lock:
-                if latest_frame is not None:
-                    # Convert the OpenCV frame to JPEG
-                    _, buffer = cv2.imencode('.jpg', latest_frame)
-                    self.wfile.write(buffer.tobytes())
-                else:
-                    # If no frame is available, send a placeholder image
-                    placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
-                    cv2.putText(placeholder, "No camera feed available", (120, 240), 
-                              cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
-                    _, buffer = cv2.imencode('.jpg', placeholder)
-                    self.wfile.write(buffer.tobytes())
-        else:
-            self.send_error(404)
-    
-    def log_message(self, format, *args):
-        # Suppress HTTP request logs to keep console clean
-        return
-
-class StreamingServer(socketserver.ThreadingMixIn, HTTPServer):
-    allow_reuse_address = True
-    daemon_threads = True
-
-def get_local_ip():
-    """Get the local IP address of the Raspberry Pi"""
-    try:
-        # Create a socket connection to an external server
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
-        return ip
-    except Exception:
-        return "127.0.0.1"  # Fallback to localhost
-
-def start_web_server():
-    """Start the web server in a separate thread"""
-    global web_server, web_server_thread
-    
-    ip = get_local_ip()
-    port = 8000
-    
-    try:
-        web_server = StreamingServer((ip, port), StreamingHandler)
-        web_server_thread = threading.Thread(target=web_server.serve_forever)
-        web_server_thread.daemon = True
-        web_server_thread.start()
-        print(f"✅ Web server started - Access at: http://{ip}:{port}")
-        return True
-    except Exception as e:
-        print(f"❌ Failed to start web server: {e}")
-        return False
-
-def stop_web_server():
-    """Stop the web server thread"""
-    global web_server
-    if web_server:
-        web_server.shutdown()
-        web_server = None
-        print("✅ Web server stopped")
-
 def main():
-    global latest_frame, HEADLESS_MODE
+    global latest_frame
     
     print("Starting drowning detection system...")
-    print("Running in headless mode (no GUI display)" if HEADLESS_MODE else "Running with GUI display")
     
     # Create output directory if it doesn't exist
     os.makedirs("detections", exist_ok=True)
-    
-    # Start web server in headless mode
-    if HEADLESS_MODE:
-        start_web_server()
     
     # Load YOLOv8 model
     print("Loading YOLOv8 model...")
@@ -586,59 +166,31 @@ def main():
     except Exception as e:
         print(f"❌ Error loading model: {e}")
         GPIO.cleanup()
-        stop_web_server()
         return
     
     # Initialize camera
-    camera, camera_type = initialize_camera()
-    if not camera:
-        print("❌ Could not initialize any camera. Exiting.")
+    cap = try_cv2_camera()
+    if not cap:
+        print("❌ Could not initialize camera. Exiting.")
         GPIO.cleanup()
-        stop_web_server()
         return
     
-    print(f"✅ Using {camera_type} camera")
+    camera = OpenCVCameraHandler(cap)
+    print("✅ Camera initialized successfully!")
     
-    # Variable to track if alarm is active
+    # Create window for display
+    window_name = "Drowning Detection System"
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(window_name, 800, 600)  # Resizable window
+    
+    # Variables for detection
     alarm_active = False
-    last_camera_check = time.time()
-    camera_recovery_attempts = 0
-    last_save_time = 0  # For periodic image saving
     
-    print("Starting detection loop. Press Ctrl+C to quit.")
-    print(f"If running in headless mode, camera feed is available via web browser")
+    print("Camera view started. Press 'q' to quit.")
     
     try:
         while True:
-            # Camera health check and recovery (every 10 seconds)
-            if time.time() - last_camera_check > 10:
-                last_camera_check = time.time()
-                if not camera.is_healthy():
-                    print("⚠️ Camera appears unhealthy, attempting recovery...")
-                    camera_recovery_attempts += 1
-                    
-                    # Release current camera
-                    camera.release()
-                    
-                    # Try to reinitialize camera
-                    if camera_recovery_attempts < 5:  # Limit recovery attempts
-                        camera, camera_type = initialize_camera()
-                        if camera:
-                            print(f"✅ Camera recovered using {camera_type}")
-                        else:
-                            print("❌ Could not recover camera. Will retry...")
-                            time.sleep(2)  # Wait before next attempt
-                    else:
-                        print("❌ Maximum camera recovery attempts reached. Exiting.")
-                        break
-            
             # Capture frame
-            if not camera:
-                print("❌ No active camera. Attempting recovery...")
-                time.sleep(1)
-                last_camera_check = 0  # Force camera check on next loop
-                continue
-                
             ret, frame = camera.read_frame()
                 
             if not ret or frame is None:
@@ -649,10 +201,6 @@ def main():
             # Update latest frame for web streaming
             with latest_frame_lock:
                 latest_frame = frame.copy()
-            
-            # Print a periodic status message (every 30 seconds)
-            if int(time.time()) % 30 == 0:  # Every 30 seconds
-                print(f"✅ Camera running: {camera_type}")
             
             # Run YOLOv8 detection
             results = model(frame, verbose=False)
@@ -668,7 +216,53 @@ def main():
                     
                     if class_name == 'drowning' and confidence > 0.5:
                         drowning_detected = True
-                        # Details are logged when saving image
+                        print(f"⚠️ Drowning detected with confidence {confidence:.2f}")
+            
+            # Create a display frame with detections
+            display_frame = frame.copy()
+            
+            # Draw detections on display frame
+            for result in results:
+                boxes = result.boxes
+                for box in boxes:
+                    class_id = int(box.cls)
+                    confidence = float(box.conf)
+                    class_name = model.names[class_id]
+                    
+                    if class_name == 'drowning' and confidence > 0.5:
+                        # Get bounding box coordinates
+                        x1, y1, x2, y2 = map(int, box.xyxy[0])
+                        
+                        # Draw bounding box and label
+                        cv2.rectangle(display_frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
+                        label = f"DROWNING {confidence:.2f}"
+                        cv2.putText(display_frame, label, (x1, y1-10), 
+                                  cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
+            
+            # Add status text
+            status = "DROWNING DETECTED" if drowning_detected else "Monitoring"
+            cv2.putText(display_frame, "Status: " + status, 
+                      (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, 
+                      (0, 0, 255) if drowning_detected else (0, 255, 0), 2)
+            
+            # Add timestamp
+            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            cv2.putText(display_frame, timestamp, 
+                      (10, display_frame.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, 
+                      (255, 255, 255), 2)
+            
+            # Add instructions
+            cv2.putText(display_frame, "Press 'q' to quit, 's' to save image", 
+                      (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            
+            # Add buzzer and LED status
+            buzzer_status = "ON" if alarm_active else "OFF"
+            cv2.putText(display_frame, f"Buzzer & LED: {buzzer_status}", 
+                      (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.6, 
+                      (0, 0, 255) if alarm_active else (255, 255, 255), 2)
+            
+            # Display the frame
+            cv2.imshow(window_name, display_frame)
             
             # Trigger alarm if drowning detected (and alarm not already active)
             if drowning_detected and not alarm_active:
@@ -681,63 +275,11 @@ def main():
             if not drowning_detected and alarm_active:
                 alarm_active = False
             
-            # Periodically save detection images
-            if time.time() - last_save_time > 60:  # Every 60 seconds
-                last_save_time = time.time()
-                save_detection_image(frame, results, drowning_detected)
-            
-            # In display mode, show the frame
-            if not HEADLESS_MODE:
-                # Create a frame with detections for display
-                display_frame = frame.copy()
-                
-                # Draw detections on display frame
-                for result in results:
-                    boxes = result.boxes
-                    for box in boxes:
-                        class_id = int(box.cls)
-                        confidence = float(box.conf)
-                        class_name = model.names[class_id]
-                        
-                        if class_name == 'drowning' and confidence > 0.5:
-                            # Get bounding box coordinates
-                            x1, y1, x2, y2 = map(int, box.xyxy[0])
-                            
-                            # Draw bounding box and label
-                            cv2.rectangle(display_frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
-                            label = f"DROWNING {confidence:.2f}"
-                            cv2.putText(display_frame, label, (x1, y1-10), 
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
-                
-                # Add status text
-                status = "DROWNING DETECTED" if drowning_detected else "Monitoring"
-                cv2.putText(display_frame, "Status: " + status, 
-                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, 
-                        (0, 0, 255) if drowning_detected else (0, 255, 0), 2)
-                
-                # Add camera info
-                camera_info = f"Camera: {camera_type}"
-                cv2.putText(display_frame, camera_info, 
-                        (10, display_frame.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, 
-                        (255, 255, 255), 2)
-                
-                try:
-                    # Display the frame
-                    cv2.imshow("Drowning Detection", display_frame)
-                    key = cv2.waitKey(1) & 0xFF
-                    if key == ord('q'):
-                        print("Quitting due to 'q' key press...")
-                        break
-                    elif key == ord('s'):
-                        # Save current frame on 's' key press
-                        save_detection_image(frame, results, drowning_detected)
-                except Exception as e:
-                    print(f"⚠️ Display error: {e}")
-                    print("Switching to headless mode...")
-                    HEADLESS_MODE = True
-                    # Start web server if we're switching to headless mode
-                    if not web_server:
-                        start_web_server()
+            # Check for key press
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
+                print("Quitting due to 'q' key press...")
+                break
             
             # Small delay to reduce CPU usage
             time.sleep(0.05)
@@ -751,15 +293,7 @@ def main():
         if camera:
             camera.release()
         
-        # Only try to close windows in display mode
-        if not HEADLESS_MODE:
-            try:
-                cv2.destroyAllWindows()
-            except Exception as e:
-                print(f"Error closing OpenCV windows: {e}")
-        
-        # Stop web server if running
-        stop_web_server()
+        cv2.destroyAllWindows()
         
         buzzer_pwm.stop()
         GPIO.cleanup()
