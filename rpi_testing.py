@@ -298,6 +298,39 @@ def try_cv2_camera():
     """Try to initialize camera using OpenCV's VideoCapture with improved settings"""
     print("\nTrying OpenCV camera access...")
     
+    # Try V4L2 backend explicitly first (recommended for Raspberry Pi)
+    print("Trying V4L2 backend explicitly...")
+    try:
+        # Use VideoCapture with explicit V4L2 backend
+        cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
+        
+        # Set explicit camera properties
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        cap.set(cv2.CAP_PROP_FPS, 30)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)
+        
+        if cap.isOpened():
+            # Try multiple frames to ensure stability
+            success_count = 0
+            for _ in range(5):
+                ret, frame = cap.read()
+                if ret and frame is not None and frame.size > 0:
+                    success_count += 1
+                time.sleep(0.1)
+            
+            if success_count >= 3:  # At least 3 successful frames
+                print(f"✅ Successfully opened camera with V4L2 backend ({success_count}/5 test frames)")
+                cv2.imwrite("test_cv2_v4l2.jpg", frame)
+                return cap
+            else:
+                print("⚠️ Camera opened with V4L2 but returned inconsistent frames")
+                cap.release()
+        else:
+            print("❌ Could not open camera with V4L2 backend")
+    except Exception as e:
+        print(f"❌ Error with V4L2 backend: {e}")
+    
     # First try direct device paths
     for i in range(10):
         device_path = f"/dev/video{i}"
