@@ -30,8 +30,14 @@ def trigger_alarm(duration=10):
     GPIO.output(LED_PIN, GPIO.LOW)  # Turn off LED
     print("Alarm stopped")
 
-# Check if we're running in headless mode (without display)
-HEADLESS_MODE = True  # Set to True to run without GUI display
+# ----- Attempt to import picamera2 -----
+try:
+    from picamera2 import Picamera2
+    HAVE_PICAMERA2 = True
+    print("✅ Successfully imported picamera2")
+except ImportError:
+    HAVE_PICAMERA2 = False
+    print("❌ Could not import picamera2. Will try fallback methods.")
 
 class LibCameraHandler:
     """Use libcamera-still for capturing frames from Raspberry Pi camera"""
@@ -40,6 +46,7 @@ class LibCameraHandler:
         self.height = height
         self.frame = None
         self.last_frame_time = 0
+        self.process = None
         
     def initialize(self):
         try:
@@ -114,12 +121,91 @@ class LibCameraHandler:
     
     def is_healthy(self):
         """Check if camera is healthy based on recent frames"""
-        # If we haven't gotten a frame in 10 seconds, camera is unhealthy
+        # If we haven't gotten a frame in 3 seconds, camera is unhealthy
         return (time.time() - self.last_frame_time) < 10  # More tolerance for libcamera
     
     def release(self):
         # Nothing to release for libcamera-still approach
         pass
+
+class PiCamera2Handler:
+    def __init__(self, width=640, height=480):
+        self.picam2 = None
+        self.width = width
+        self.height = height
+        self.frame = None
+        self.last_frame_time = 0
+        
+    def initialize(self):
+        try:
+            # Create a new Picamera2 instance
+            self.picam2 = Picamera2()
+            
+            # Configure the camera with more explicit settings
+            config = self.picam2.create_preview_configuration(
+                main={"size": (self.width, self.height), "format": "RGB888"},
+                controls={"FrameDurationLimits": (33333, 33333)}  # Force 30fps
+            )
+            self.picam2.configure(config)
+            
+            # Start the camera
+            self.picam2.start(show_preview=False)
+            print("Camera starting, waiting for initialization...")
+            
+            # Wait longer for camera to initialize with multiple attempts
+            for i in range(10):  # Try up to 10 times
+                time.sleep(0.5)
+                try:
+                    test_frame = self.picam2.capture_array()
+                    if test_frame is not None and test_frame.size > 0:
+                        print(f"✅ PiCamera2 initialized successfully after {i+1} attempts!")
+                        cv2.imwrite("camera_test.jpg", cv2.cvtColor(test_frame, cv2.COLOR_RGB2BGR))
+                        print("✅ Test image saved as camera_test.jpg")
+                        self.last_frame_time = time.time()
+                        return True
+                except Exception as e:
+                    print(f"Attempt {i+1}: {e}")
+                    continue
+                    
+            print("❌ PiCamera2 could not capture a valid frame after multiple attempts")
+            if self.picam2:
+                self.picam2.close()
+                self.picam2 = None
+            return False
+        except Exception as e:
+            print(f"❌ Error initializing PiCamera2: {e}")
+            if self.picam2:
+                self.picam2.close()
+                self.picam2 = None
+            return False
+    
+    def read_frame(self):
+        if not self.picam2:
+            return False, None
+            
+        try:
+            self.frame = self.picam2.capture_array()
+            # Convert from RGB to BGR for OpenCV compatibility
+            self.frame = cv2.cvtColor(self.frame, cv2.COLOR_RGB2BGR)
+            self.last_frame_time = time.time()
+            return True, self.frame
+        except Exception as e:
+            print(f"❌ Error capturing frame: {e}")
+            return False, None
+    
+    def is_healthy(self):
+        """Check if camera is healthy based on recent frames"""
+        # If we haven't gotten a frame in 3 seconds, camera is unhealthy
+        return (time.time() - self.last_frame_time) < 3
+    
+    def release(self):
+        if self.picam2:
+            try:
+                self.picam2.close()
+                print("✅ PiCamera2 resources released")
+            except Exception as e:
+                print(f"❌ Error releasing PiCamera2: {e}")
+            self.picam2 = None
 
 class RaspiStillHandler:
     """Use raspistill for capturing frames from Raspberry Pi camera (legacy)"""
@@ -201,7 +287,7 @@ class RaspiStillHandler:
     
     def is_healthy(self):
         """Check if camera is healthy based on recent frames"""
-        # If we haven't gotten a frame in 10 seconds, camera is unhealthy
+        # If we haven't gotten a frame in 3 seconds, camera is unhealthy
         return (time.time() - self.last_frame_time) < 10  # More tolerance for raspistill
     
     def release(self):
@@ -347,7 +433,16 @@ class OpenCVCameraHandler:
 
 def initialize_camera():
     """Try to initialize any available camera method"""
-    # Try LibCamera first (for Pi OS Bullseye and newer)
+    # Try PiCamera2 first (recommended for newer Raspberry Pi)
+    if HAVE_PICAMERA2:
+        print("Initializing PiCamera2...")
+        camera = PiCamera2Handler()
+        if camera.initialize():
+            return camera, "picamera2"
+        else:
+            print("❌ Failed to initialize PiCamera2, trying other methods...")
+    
+    # Try LibCamera (for Pi OS Bullseye and newer)
     print("Trying LibCamera...")
     camera = LibCameraHandler()
     if camera.initialize():
@@ -368,57 +463,8 @@ def initialize_camera():
     # No camera available
     return None, None
 
-def save_detection_image(frame, results, drowning_detected):
-    """Save detection image with bounding boxes and information"""
-    # Create a copy of the frame
-    output_frame = frame.copy()
-    
-    # Process results (same as in main loop)
-    for result in results:
-        boxes = result.boxes
-        for box in boxes:
-            class_id = int(box.cls)
-            confidence = float(box.conf)
-            class_name = result.names[class_id]
-            
-            if class_name == 'drowning' and confidence > 0.5:
-                # Get bounding box coordinates
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                
-                # Draw bounding box and label
-                cv2.rectangle(output_frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
-                label = f"DROWNING {confidence:.2f}"
-                cv2.putText(output_frame, label, (x1, y1-10), 
-                          cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
-    
-    # Add status text
-    status = "DROWNING DETECTED" if drowning_detected else "Monitoring"
-    cv2.putText(output_frame, "Status: " + status, 
-              (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, 
-              (0, 0, 255) if drowning_detected else (0, 255, 0), 2)
-    
-    # Add timestamp
-    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-    cv2.putText(output_frame, timestamp, 
-              (10, output_frame.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, 
-              (255, 255, 255), 2)
-    
-    # Save the image
-    if drowning_detected:
-        filename = f"drowning_alert_{int(time.time())}.jpg"
-    else:
-        filename = f"detection_{int(time.time())}.jpg"
-    
-    cv2.imwrite(filename, output_frame)
-    print(f"Image saved: {filename}")
-    return filename
-
 def main():
     print("Starting drowning detection system...")
-    print("Running in headless mode (no GUI display)" if HEADLESS_MODE else "Running with GUI display")
-    
-    # Create output directory if it doesn't exist
-    os.makedirs("detections", exist_ok=True)
     
     # Load YOLOv8 model
     print("Loading YOLOv8 model...")
@@ -443,9 +489,8 @@ def main():
     alarm_active = False
     last_camera_check = time.time()
     camera_recovery_attempts = 0
-    last_save_time = 0  # For periodic image saving (headless mode)
     
-    print("Starting detection loop. Press Ctrl+C to quit.")
+    print("Starting detection loop. Press 'q' to quit.")
     
     try:
         while True:
@@ -485,10 +530,6 @@ def main():
                 time.sleep(0.5)
                 continue
             
-            # Print a periodic status message
-            if int(time.time()) % 10 == 0:  # Every 10 seconds
-                print(f"✅ Camera running: {camera_type}")
-            
             # Run YOLOv8 detection
             results = model(frame, verbose=False)
             
@@ -502,69 +543,41 @@ def main():
                     class_name = model.names[class_id]
                     
                     if class_name == 'drowning' and confidence > 0.5:
+                        # Get bounding box coordinates
+                        x1, y1, x2, y2 = map(int, box.xyxy[0])
+                        
+                        # Draw bounding box and label
+                        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
+                        label = f"DROWNING {confidence:.2f}"
+                        cv2.putText(frame, label, (x1, y1-10), 
+                                  cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
                         drowning_detected = True
-                        # Details are logged when saving image
             
             # Trigger alarm if drowning detected (and alarm not already active)
             if drowning_detected and not alarm_active:
                 alarm_active = True
-                # Save detection image when drowning is detected
-                save_detection_image(frame, results, drowning_detected)
                 threading.Thread(target=trigger_alarm).start()
             
             # Reset alarm status after it finishes
             if not drowning_detected and alarm_active:
                 alarm_active = False
             
-            # In headless mode, periodically save detection images
-            if HEADLESS_MODE and time.time() - last_save_time > 30:  # Every 30 seconds
-                last_save_time = time.time()
-                save_detection_image(frame, results, drowning_detected)
+            # Add status text
+            status = "DROWNING DETECTED" if drowning_detected else "Monitoring"
+            cv2.putText(frame, "Status: " + status, 
+                      (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, 
+                      (0, 0, 255) if drowning_detected else (0, 255, 0), 2)
             
-            # In display mode, show the frame
-            if not HEADLESS_MODE:
-                # Create a frame with detections for display
-                display_frame = frame.copy()
-                
-                # Draw detections on display frame
-                for result in results:
-                    boxes = result.boxes
-                    for box in boxes:
-                        class_id = int(box.cls)
-                        confidence = float(box.conf)
-                        class_name = model.names[class_id]
-                        
-                        if class_name == 'drowning' and confidence > 0.5:
-                            # Get bounding box coordinates
-                            x1, y1, x2, y2 = map(int, box.xyxy[0])
-                            
-                            # Draw bounding box and label
-                            cv2.rectangle(display_frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
-                            label = f"DROWNING {confidence:.2f}"
-                            cv2.putText(display_frame, label, (x1, y1-10), 
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
-                
-                # Add status text
-                status = "DROWNING DETECTED" if drowning_detected else "Monitoring"
-                cv2.putText(display_frame, "Status: " + status, 
-                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, 
-                        (0, 0, 255) if drowning_detected else (0, 255, 0), 2)
-                
-                # Add camera info
-                camera_info = f"Camera: {camera_type}"
-                cv2.putText(display_frame, camera_info, 
-                        (10, display_frame.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, 
-                        (255, 255, 255), 2)
-                
-                try:
-                    # Display the frame
-                    cv2.imshow("Drowning Detection", display_frame)
-                    if cv2.waitKey(1) & 0xFF == ord('q'):
-                        break
-                except Exception as e:
-                    print(f"⚠️ Display error: {e}")
-                    print("Switching to headless mode...")
-                    HEADLESS_MODE = True
+            # Add camera info
+            camera_info = f"Camera: {camera_type}"
+            cv2.putText(frame, camera_info, 
+                      (10, frame.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, 
+                      (255, 255, 255), 2)
+            
+            # Display the frame
+            cv2.imshow("Drowning Detection", frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
             
             # Small delay to reduce CPU usage
             time.sleep(0.05)
@@ -578,13 +591,7 @@ def main():
         if camera:
             camera.release()
         
-        # Only try to close windows in display mode
-        if not HEADLESS_MODE:
-            try:
-                cv2.destroyAllWindows()
-            except:
-                pass
-        
+        cv2.destroyAllWindows()
         buzzer_pwm.stop()
         GPIO.cleanup()
         print("✅ Resources released.")
