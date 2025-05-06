@@ -17,18 +17,66 @@ pip3 install torch==1.10.0 torchvision==0.11.1 --extra-index-url https://downloa
 pip install ultralytics  # Installs YOLOv8
 pip install opencv-python-headless  # Lightweight OpenCV for Pi
 
-(env) pi@raspberrypi:~/Desktop/drowning $ python3 drowning_detection_wsapp.py
-Successfully loaded YOLO model from best.pt
-Trying camera method 1...
-Method 1 opened camera but couldn't read frame
-Trying camera method 2...
-Method 2 failed to open camera
-Trying camera method 3...
-Method 3 opened camera but couldn't read frame
-Trying camera method 4...
-Method 4 failed to open camera
-All camera methods failed!
-Failed to initialize any camera. Exiting.
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Incomplete frame received: 0 bytes
+Failed to grab frame (error 5/5)
+Too many errors, trying to reinitialize camera...
+Incomplete frame received: 0 bytes
+Trying libcamera-vid approach...
+Starting libcamera-vid with command: libcamera-vid --width 640 --height 480 --framerate 15 --codec yuv420 --output -
+libcamera-vid initialized successfully
+User requested exit
+Program terminated
+
 
 
 
