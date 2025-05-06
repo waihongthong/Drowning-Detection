@@ -5,6 +5,7 @@ import requests
 import time
 import json
 import os
+import subprocess
 from google.oauth2 import service_account
 from google.auth.transport.requests import Request
 
@@ -77,8 +78,27 @@ def send_alert():
         print(f"Error sending alert: {e}")
         return False
 
+# Try to configure libcamera for V4L2 compatibility
+def setup_libcamera_compatibility():
+    try:
+        # Check if the bcm2835-v4l2 module is loaded
+        modprobe_result = subprocess.run(["lsmod"], 
+                                         capture_output=True, 
+                                         text=True)
+        
+        if "bcm2835_v4l2" not in modprobe_result.stdout:
+            print("Loading bcm2835-v4l2 module for libcamera compatibility...")
+            subprocess.run(["sudo", "modprobe", "bcm2835-v4l2"], 
+                           capture_output=True)
+    except Exception as e:
+        print(f"Note: Could not set up libcamera compatibility: {e}")
+
 # Initialize camera using picamera2 if available, otherwise fall back to OpenCV
 def init_camera():
+    # Try to set up libcamera compatibility
+    setup_libcamera_compatibility()
+    
+    # First, try picamera2 (preferred for Raspberry Pi)
     if HAS_PICAMERA2:
         try:
             print("Initializing camera with picamera2...")
@@ -90,70 +110,64 @@ def init_camera():
             picam2.configure(config)
             picam2.start()
             time.sleep(2)  # Give camera time to warm up
-            print("picamera2 initialized successfully")
-            return picam2, True  # True indicates it's picamera2
+            
+            # Test capture
+            test_frame = picam2.capture_array()
+            if test_frame is not None and test_frame.size > 0:
+                print("picamera2 initialized successfully")
+                return picam2, True  # True indicates it's picamera2
+            else:
+                print("picamera2 started but couldn't capture valid frame")
+                picam2.stop()
         except Exception as e:
             print(f"Failed to initialize picamera2: {e}")
     
     # Fall back to OpenCV
-    print("Trying OpenCV camera methods...")
+    print("Trying OpenCV camera methods with libcamera compatibility...")
     
-    # Try different camera backends
-    backends = [cv2.CAP_V4L2, cv2.CAP_V4L]
-    devices = [0, 1, "/dev/video0"]
+    # Try different camera options
+    camera_options = [
+        {"device": 0, "api": cv2.CAP_V4L2},
+        {"device": 0, "api": cv2.CAP_ANY},
+        {"device": "libcamera:///dev/video0", "api": cv2.CAP_V4L2},
+        {"device": "/dev/video0", "api": cv2.CAP_V4L2},
+        {"device": "device=/dev/video0,format=YUY2", "api": cv2.CAP_V4L2}
+    ]
     
-    for backend in backends:
-        for device in devices:
-            try:
-                print(f"Trying camera device {device} with backend {backend}...")
-                cap = cv2.VideoCapture(device, backend)
-                
-                if cap.isOpened():
-                    # Wait a bit for camera to initialize
-                    time.sleep(1)
-                    
-                    # Set properties
-                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-                    
-                    # Try different formats
-                    for format_code in [cv2.VideoWriter_fourcc(*'MJPG'), cv2.VideoWriter_fourcc(*'YUYV')]:
-                        cap.set(cv2.CAP_PROP_FOURCC, format_code)
-                        
-                        # Test read with multiple attempts
-                        for attempt in range(3):
-                            ret, test_frame = cap.read()
-                            if ret and test_frame is not None and test_frame.size > 0:
-                                format_name = ''.join([chr((format_code >> 8*i) & 0xFF) for i in range(4)])
-                                print(f"Successfully connected to camera using device {device}, backend {backend}, format {format_name}")
-                                return cap, False  # False indicates it's OpenCV
-                            time.sleep(0.5)
-                    
-                    print(f"Device {device} opened but couldn't read valid frames")
-                    cap.release()
-                else:
-                    print(f"Failed to open device {device} with backend {backend}")
-            except Exception as e:
-                print(f"Error with device {device}, backend {backend}: {e}")
-    
-    # Last resort: try with default backend
-    try:
-        print("Trying camera with default settings as last resort...")
-        cap = cv2.VideoCapture(0)
-        if cap.isOpened():
-            # Lower resolution
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
+    for opt in camera_options:
+        try:
+            print(f"Trying camera: {opt['device']} with API: {opt['api']}")
+            cap = cv2.VideoCapture(opt['device'], opt['api'])
             
-            # Test read
-            time.sleep(2)  # Give more time
-            ret, test_frame = cap.read()
-            if ret and test_frame is not None and test_frame.size > 0:
-                print("Successfully connected to camera using default settings")
-                return cap, False
-        cap.release()
+            if cap.isOpened():
+                # Set properties
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                
+                # Test read with multiple attempts
+                for attempt in range(5):  # More attempts
+                    ret, test_frame = cap.read()
+                    if ret and test_frame is not None and test_frame.size > 0:
+                        print(f"Successfully connected to camera using {opt['device']}")
+                        print(f"Frame shape: {test_frame.shape}")
+                        return cap, False  # False indicates it's OpenCV
+                    time.sleep(0.5)
+                
+                print(f"Device {opt['device']} opened but couldn't read valid frames")
+                cap.release()
+            else:
+                print(f"Failed to open device {opt['device']}")
+        except Exception as e:
+            print(f"Error with device {opt['device']}: {e}")
+    
+    # If we get here, try a last resort with libcamera-vid piped to OpenCV
+    try:
+        print("Attempting to use libcamera-vid as a last resort...")
+        print("This method will be added if needed based on your response")
+        # Code here would use subprocess to call libcamera-vid and pipe to OpenCV
+        # This is a more complex approach we can implement if necessary
     except Exception as e:
-        print(f"Default camera attempt failed: {e}")
+        print(f"libcamera-vid attempt failed: {e}")
     
     print("All camera methods failed!")
     return None, False
