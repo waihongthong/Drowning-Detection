@@ -97,36 +97,63 @@ def init_camera():
     
     # Fall back to OpenCV
     print("Trying OpenCV camera methods...")
-    camera_methods = [
-        # Method 1: Standard OpenCV camera
-        lambda: cv2.VideoCapture(0),
-        
-        # Method 2: Direct V4L2 access
-        lambda: cv2.VideoCapture('/dev/video0'),
-        
-        # Method 3: V4L2 with specific resolution
-        lambda: cv2.VideoCapture('v4l2:///dev/video0')
-    ]
     
-    for i, method in enumerate(camera_methods):
-        print(f"Trying OpenCV camera method {i+1}...")
-        cap = method()
+    # Try different camera backends
+    backends = [cv2.CAP_V4L2, cv2.CAP_V4L]
+    devices = [0, 1, "/dev/video0"]
+    
+    for backend in backends:
+        for device in devices:
+            try:
+                print(f"Trying camera device {device} with backend {backend}...")
+                cap = cv2.VideoCapture(device, backend)
+                
+                if cap.isOpened():
+                    # Wait a bit for camera to initialize
+                    time.sleep(1)
+                    
+                    # Set properties
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                    
+                    # Try different formats
+                    for format_code in [cv2.VideoWriter_fourcc(*'MJPG'), cv2.VideoWriter_fourcc(*'YUYV')]:
+                        cap.set(cv2.CAP_PROP_FOURCC, format_code)
+                        
+                        # Test read with multiple attempts
+                        for attempt in range(3):
+                            ret, test_frame = cap.read()
+                            if ret and test_frame is not None and test_frame.size > 0:
+                                format_name = ''.join([chr((format_code >> 8*i) & 0xFF) for i in range(4)])
+                                print(f"Successfully connected to camera using device {device}, backend {backend}, format {format_name}")
+                                return cap, False  # False indicates it's OpenCV
+                            time.sleep(0.5)
+                    
+                    print(f"Device {device} opened but couldn't read valid frames")
+                    cap.release()
+                else:
+                    print(f"Failed to open device {device} with backend {backend}")
+            except Exception as e:
+                print(f"Error with device {device}, backend {backend}: {e}")
+    
+    # Last resort: try with default backend
+    try:
+        print("Trying camera with default settings as last resort...")
+        cap = cv2.VideoCapture(0)
         if cap.isOpened():
-            # Set properties
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+            # Lower resolution
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
             
             # Test read
+            time.sleep(2)  # Give more time
             ret, test_frame = cap.read()
-            if ret:
-                print(f"Successfully connected to camera using OpenCV method {i+1}")
-                return cap, False  # False indicates it's OpenCV
-            else:
-                print(f"Method {i+1} opened camera but couldn't read frame")
-                cap.release()
-        else:
-            print(f"Method {i+1} failed to open camera")
+            if ret and test_frame is not None and test_frame.size > 0:
+                print("Successfully connected to camera using default settings")
+                return cap, False
+        cap.release()
+    except Exception as e:
+        print(f"Default camera attempt failed: {e}")
     
     print("All camera methods failed!")
     return None, False
@@ -153,9 +180,13 @@ try:
                 frame = camera.capture_array()
                 ret = True
             else:
-                ret, frame = camera.read()
+                for _ in range(3):  # Try up to 3 times to get a frame
+                    ret, frame = camera.read()
+                    if ret and frame is not None and frame.size > 0:
+                        break
+                    time.sleep(0.1)
             
-            if not ret:
+            if not ret or frame is None or frame.size == 0:
                 error_count += 1
                 print(f"Failed to grab frame (error {error_count}/{MAX_ERRORS})")
                 
