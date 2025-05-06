@@ -17,9 +17,46 @@ pip3 install torch==1.10.0 torchvision==0.11.1 --extra-index-url https://downloa
 pip install ultralytics  # Installs YOLOv8
 pip install opencv-python-headless  # Lightweight OpenCV for Pi
 
-cd ~
-git clone https://github.com/raspberrypi/picamera2.git
-cd picamera2
+Reading package lists... Done
+Building dependency tree... Done
+Reading state information... Done
+Some packages could not be installed. This may mean that you have
+requested an impossible situation or if you are using the unstable
+distribution that some required packages have not yet been created
+or been moved out of Incoming.
+The following information may help to resolve the situation:
+
+The following packages have unmet dependencies:
+ apt : Depends: libapt-pkg6.0 (>= 2.6.1) but it is not going to be installed
+ e2fsprogs : PreDepends: libblkid1 (>= 2.36) but it is not installable
+             PreDepends: libuuid1 (>= 2.16) but it is not installable
+             Recommends: e2fsprogs-l10n but it is not going to be installed
+ init : PreDepends: systemd-sysv or
+                    sysvinit-core but it is not installable
+ libgd3:armhf : Depends: libtiff6:armhf (>= 4.0.3) but it is not going to be installed
+ libgdal32:armhf : Depends: libtiff6:armhf (>= 4.5.0~rc1) but it is not going to be installed
+ libgeotiff5:armhf : Depends: libtiff6:armhf (>= 4.0.3) but it is not going to be installed
+ liblept5:armhf : Depends: libtiff6:armhf (>= 4.0.3) but it is not going to be installed
+ libopencv-contrib406:armhf : Depends: libqt5gui5:armhf (>= 5.14.1) but it is not going to be installed or
+                                       libqt5gui5-gles:armhf (>= 5.14.1) but it is not going to be installed
+ libopencv-highgui406:armhf : Depends: libqt5gui5:armhf (>= 5.7.0) but it is not going to be installed or
+                                       libqt5gui5-gles:armhf (>= 5.7.0) but it is not going to be installed
+ libopencv-imgcodecs406:armhf : Depends: libtiff6:armhf (>= 4.0.3) but it is not going to be installed
+ libopencv-videoio406:armhf : Depends: libavcodec59:armhf (>= 7:5.0)
+                              Depends: libavformat59:armhf (>= 7:5.0)
+ libpoppler126:armhf : Depends: libtiff6:armhf (>= 4.0.3) but it is not going to be installed
+ libproj25:armhf : Depends: libtiff6:armhf (>= 4.0.3) but it is not going to be installed
+ libqt5opengl5:armhf : Depends: libqt5gui5:armhf (>= 5.8.0) but it is not going to be installed or
+                                libqt5gui5-gles:armhf (>= 5.8.0) but it is not going to be installed
+ libqt5widgets5:armhf : Depends: libqt5gui5:armhf (>= 5.15.1) but it is not going to be installed or
+                                 libqt5gui5-gles:armhf (>= 5.15.1) but it is not going to be installed
+ libvtk9.1:armhf : Depends: libtiff6:armhf (>= 4.0.3) but it is not going to be installed
+ util-linux : PreDepends: libblkid1 (>= 2.37.2) but it is not installable
+              PreDepends: libmount1 (>= 2.38) but it is not installable
+              PreDepends: libudev1 (>= 183) but it is not installable
+              PreDepends: libuuid1 (>= 2.16) but it is not installable
+E: Error, pkgProblemResolver::Resolve generated breaks, this may be caused by held packages.
+
 
 
 
