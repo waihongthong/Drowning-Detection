@@ -1,9 +1,0 @@
-nc: 3
-names:
-  0: 'drowning'
-  1: 'person out of water'
-  2: 'swimming'
-
-train: 'C:/Users/User/Desktop/Year 4/CAT405/Drowning/Drowning/Final_Dataset/train/images'
-val: 'C:/Users/User/Desktop/Year 4/CAT405/Drowning/Drowning/Final_Dataset/valid/images'
-test: 'C:/Users/User/Desktop/Year 4/CAT405/Drowning/Drowning/Final_Dataset/test/images'
