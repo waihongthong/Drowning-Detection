@@ -6,6 +6,7 @@ import time
 import json
 import os
 import subprocess
+import threading
 from google.oauth2 import service_account
 from google.auth.transport.requests import Request
 
@@ -93,6 +94,111 @@ def setup_libcamera_compatibility():
     except Exception as e:
         print(f"Note: Could not set up libcamera compatibility: {e}")
 
+# Class to handle libcamera-vid process and pipe
+class LibcameraVideoCapture:
+    def __init__(self, width=640, height=480, framerate=15):
+        self.width = width
+        self.height = height
+        self.framerate = framerate
+        self.process = None
+        self.pipe = None
+        self.latest_frame = None
+        self.running = False
+        self.frame_available = threading.Event()
+        self.lock = threading.Lock()
+        
+    def start(self):
+        try:
+            # Command to run libcamera-vid and output to stdout
+            cmd = [
+                "libcamera-vid",
+                "--width", str(self.width),
+                "--height", str(self.height),
+                "--framerate", str(self.framerate),
+                "--codec", "yuv420",
+                "--output", "-"  # Output to stdout
+            ]
+            
+            print(f"Starting libcamera-vid with command: {' '.join(cmd)}")
+            
+            # Start the process
+            self.process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                bufsize=10**8  # Large buffer
+            )
+            
+            self.running = True
+            
+            # Start a thread to read frames
+            self.thread = threading.Thread(target=self._read_frames)
+            self.thread.daemon = True
+            self.thread.start()
+            
+            time.sleep(2)  # Give time to start up
+            return True
+            
+        except Exception as e:
+            print(f"Error starting libcamera-vid: {e}")
+            self.stop()
+            return False
+    
+    def _read_frames(self):
+        """Thread function that continuously reads frames from the pipe"""
+        frame_size = self.width * self.height * 3 // 2  # YUV420 size
+        
+        try:
+            while self.running:
+                # Read a complete frame
+                frame_data = self.process.stdout.read(frame_size)
+                if len(frame_data) < frame_size:
+                    if self.running:  # Only show error if we're supposed to be running
+                        print(f"Incomplete frame received: {len(frame_data)} bytes")
+                    continue
+                
+                # Convert YUV420 to numpy array
+                yuv = np.frombuffer(frame_data, dtype=np.uint8).reshape((self.height * 3 // 2, self.width))
+                
+                # Convert YUV to BGR
+                with self.lock:
+                    self.latest_frame = cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR_I420)
+                    self.frame_available.set()
+                    
+        except Exception as e:
+            print(f"Error in frame reading thread: {e}")
+            self.running = False
+    
+    def read(self):
+        """Returns (success, frame) similar to OpenCV's VideoCapture"""
+        # Wait for a frame to be available (with timeout)
+        if self.frame_available.wait(timeout=1.0):
+            with self.lock:
+                if self.latest_frame is not None:
+                    self.frame_available.clear()
+                    return True, self.latest_frame.copy()
+        
+        return False, None
+    
+    def isOpened(self):
+        """Check if camera is working"""
+        return self.running and self.process is not None and self.process.poll() is None
+        
+    def stop(self):
+        """Stop the libcamera-vid process"""
+        self.running = False
+        if self.process:
+            try:
+                self.process.terminate()
+                self.process.wait(timeout=3)
+            except:
+                try:
+                    self.process.kill()
+                except:
+                    pass
+        self.process = None
+        self.latest_frame = None
+
 # Initialize camera using picamera2 if available, otherwise fall back to OpenCV
 def init_camera():
     # Try to set up libcamera compatibility
@@ -115,12 +221,27 @@ def init_camera():
             test_frame = picam2.capture_array()
             if test_frame is not None and test_frame.size > 0:
                 print("picamera2 initialized successfully")
-                return picam2, True  # True indicates it's picamera2
+                return picam2, True, "picamera2"  # True indicates it's picamera2
             else:
                 print("picamera2 started but couldn't capture valid frame")
                 picam2.stop()
         except Exception as e:
             print(f"Failed to initialize picamera2: {e}")
+    
+    # Try libcamera-vid directly
+    print("Trying libcamera-vid approach...")
+    libcam = LibcameraVideoCapture(width=640, height=480, framerate=15)
+    if libcam.start():
+        # Test if we can get a frame
+        for _ in range(3):
+            ret, test_frame = libcam.read()
+            if ret and test_frame is not None and test_frame.size > 0:
+                print("libcamera-vid initialized successfully")
+                return libcam, False, "libcamera-vid"  # False because it's not picamera2
+            time.sleep(0.5)
+        
+        print("libcamera-vid started but couldn't capture valid frame")
+        libcam.stop()
     
     # Fall back to OpenCV
     print("Trying OpenCV camera methods with libcamera compatibility...")
@@ -150,7 +271,7 @@ def init_camera():
                     if ret and test_frame is not None and test_frame.size > 0:
                         print(f"Successfully connected to camera using {opt['device']}")
                         print(f"Frame shape: {test_frame.shape}")
-                        return cap, False  # False indicates it's OpenCV
+                        return cap, False, "opencv"  # False indicates it's OpenCV
                     time.sleep(0.5)
                 
                 print(f"Device {opt['device']} opened but couldn't read valid frames")
@@ -160,23 +281,16 @@ def init_camera():
         except Exception as e:
             print(f"Error with device {opt['device']}: {e}")
     
-    # If we get here, try a last resort with libcamera-vid piped to OpenCV
-    try:
-        print("Attempting to use libcamera-vid as a last resort...")
-        print("This method will be added if needed based on your response")
-        # Code here would use subprocess to call libcamera-vid and pipe to OpenCV
-        # This is a more complex approach we can implement if necessary
-    except Exception as e:
-        print(f"libcamera-vid attempt failed: {e}")
-    
     print("All camera methods failed!")
-    return None, False
+    return None, False, None
 
 # Initialize camera
-camera, is_picamera = init_camera()
+camera, is_picamera, camera_type = init_camera()
 if camera is None:
     print("Failed to initialize any camera. Exiting.")
     exit(1)
+
+print(f"Successfully initialized camera using {camera_type}")
 
 last_alert_time = 0
 alert_cooldown = 10  # seconds
@@ -206,9 +320,14 @@ try:
                 
                 if error_count >= MAX_ERRORS:
                     print("Too many errors, trying to reinitialize camera...")
-                    if not is_picamera:
+                    if camera_type == "libcamera-vid":
+                        camera.stop()
+                    elif not is_picamera and camera_type == "opencv":
                         camera.release()
-                    camera, is_picamera = init_camera()
+                    elif is_picamera:
+                        camera.stop()
+                        
+                    camera, is_picamera, camera_type = init_camera()
                     if camera is None:
                         print("Camera reinitialization failed. Exiting.")
                         break
@@ -250,7 +369,7 @@ try:
                             last_alert_time = time.time()
             
                 # Add status text
-                cv2.putText(frame_for_display, "Status: Running", (10, 30), 
+                cv2.putText(frame_for_display, f"Status: Running ({camera_type})", (10, 30), 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                 
                 cv2.imshow("Drowning Detection System", frame_for_display)
@@ -271,9 +390,11 @@ except Exception as e:
 finally:
     # Clean up
     if camera is not None:
-        if not is_picamera:
+        if camera_type == "libcamera-vid":
+            camera.stop()
+        elif not is_picamera and camera_type == "opencv":
             camera.release()
-        else:
+        elif is_picamera:
             camera.stop()
     cv2.destroyAllWindows()
     print("Program terminated")
