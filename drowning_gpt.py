@@ -21,8 +21,8 @@ parser.add_argument('--resolution', help='Resolution in WxH format (example: "12
 args = parser.parse_args()
 
 # GPIO pin setup
-BUZZER_PIN = 17  # GPIO pin for buzzer
-LED_PIN = 18     # GPIO pin for LED
+BUZZER_PIN = 23  # GPIO pin for buzzer
+LED_PIN = 17     # GPIO pin for LED
 
 # Create GPIO objects
 buzzer = gpiozero.Buzzer(BUZZER_PIN)
