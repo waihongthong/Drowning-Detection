@@ -2,15 +2,31 @@ import os
 import sys
 import argparse
 import time
-import gpiozero
 from threading import Thread, Lock
 
 import cv2
 import numpy as np
 from picamera2 import Picamera2
-from picamera2.previews import Preview
-from picamera2.controls import Controls
+# Remove the Preview import that's causing issues
+try:
+    from picamera2.controls import Controls
+    CONTROLS_AVAILABLE = True
+except ImportError:
+    CONTROLS_AVAILABLE = False
+    print("⚠️ picamera2.controls module not found. Using default camera settings.")
+
 from ultralytics import YOLO
+
+# Try to import gpiozero for hardware control
+try:
+    import gpiozero
+    GPIO_AVAILABLE = True
+    print("✅ GPIO control available")
+except ImportError:
+    GPIO_AVAILABLE = False
+    print("⚠️ gpiozero module not found. Install with: 'pip install gpiozero' or 'sudo apt-get install python3-gpiozero'")
+    print("⚠️ Hardware alerts (buzzer and LED) will be simulated")
+
 
 # Define and parse command line arguments
 parser = argparse.ArgumentParser()
@@ -21,20 +37,32 @@ parser.add_argument('--source', help='Video source, should be "picamera0" for Ra
 parser.add_argument('--resolution', help='Resolution in WxH format (example: "1280x720")',
                     default="1280x720")
 parser.add_argument('--confidence', help='Confidence threshold for detections (0.0-1.0)',
-                    type=float, default=0.5)
+                    type=float, default=0.4)
 args = parser.parse_args()
 
 # GPIO pin setup
 BUZZER_PIN = 23  # GPIO pin for buzzer
 LED_PIN = 17     # GPIO pin for LED
 
-# Create GPIO objects
-buzzer = gpiozero.Buzzer(BUZZER_PIN)
-led = gpiozero.LED(LED_PIN)
-
-# Initialize GPIO states
-buzzer.off()
-led.off()
+# Create GPIO objects if available
+if GPIO_AVAILABLE:
+    buzzer = gpiozero.Buzzer(BUZZER_PIN)
+    led = gpiozero.LED(LED_PIN)
+    
+    # Initialize GPIO states
+    buzzer.off()
+    led.off()
+else:
+    # Create dummy class for simulation
+    class DummyGPIO:
+        def on(self):
+            pass
+        
+        def off(self):
+            pass
+    
+    buzzer = DummyGPIO()
+    led = DummyGPIO()
 
 # Thread synchronization lock
 alarm_lock = Lock()
@@ -44,7 +72,10 @@ def activate_alarm(duration=10):
     with alarm_lock:
         buzzer.on()
         led.on()
-        print(f"🚨 DROWNING DETECTED! Alarm activated for {duration} seconds")
+        if GPIO_AVAILABLE:
+            print(f"🚨 DROWNING DETECTED! Hardware alarm activated for {duration} seconds")
+        else:
+            print(f"🚨 DROWNING DETECTED! [SIMULATED ALARM] for {duration} seconds")
     
     time.sleep(duration)
     
@@ -86,10 +117,18 @@ config = picam.create_preview_configuration(
 # Configure and optimize camera settings
 picam.configure(config)
 
-# Set controls for better performance
-controls = Controls(picam)
-controls.FrameDurationLimits = (33333, 33333)  # Force ~30fps (in microseconds)
-controls.FrameRate = 30.0
+# Set controls for better performance if available
+if CONTROLS_AVAILABLE:
+    try:
+        controls = Controls(picam)
+        controls.FrameDurationLimits = (33333, 33333)  # Force ~30fps (in microseconds)
+        controls.FrameRate = 30.0
+        print("✅ Camera controls configured for optimal performance")
+    except Exception as e:
+        print(f"⚠️ Could not set camera controls: {e}")
+        print("⚠️ Using default camera settings")
+else:
+    print("⚠️ Camera controls not available. Using default settings.")
 
 # Start camera with minimal delays
 print(f"📷 Initializing camera at resolution {resW}x{resH}...")
