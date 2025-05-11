@@ -3,12 +3,13 @@ import sys
 import argparse
 import time
 import gpiozero
-from threading import Thread
-import RPi.GPIO as GPIO  # Adding direct GPIO access for troubleshooting
+from threading import Thread, Lock
 
 import cv2
 import numpy as np
 from picamera2 import Picamera2
+from picamera2.previews import Preview
+from picamera2.controls import Controls
 from ultralytics import YOLO
 
 # Define and parse command line arguments
@@ -19,77 +20,38 @@ parser.add_argument('--source', help='Video source, should be "picamera0" for Ra
                     default="picamera0")
 parser.add_argument('--resolution', help='Resolution in WxH format (example: "1280x720")',
                     default="1280x720")
+parser.add_argument('--confidence', help='Confidence threshold for detections (0.0-1.0)',
+                    type=float, default=0.4)
 args = parser.parse_args()
 
 # GPIO pin setup
 BUZZER_PIN = 23  # GPIO pin for buzzer
 LED_PIN = 17     # GPIO pin for LED
 
-# Initialize both GPIO libraries for redundancy
-# 1. Using gpiozero (high-level)
-try:
-    buzzer = gpiozero.Buzzer(BUZZER_PIN)
-    led = gpiozero.LED(LED_PIN)
-    buzzer.off()
-    led.off()
-except Exception as e:
-    print(f"⚠️ gpiozero setup error: {e}")
+# Create GPIO objects
+buzzer = gpiozero.Buzzer(BUZZER_PIN)
+led = gpiozero.LED(LED_PIN)
 
-# 2. Using RPi.GPIO directly (lower-level fallback)
-GPIO.setmode(GPIO.BCM)
-GPIO.setwarnings(False)
-GPIO.setup(BUZZER_PIN, GPIO.OUT)
-GPIO.setup(LED_PIN, GPIO.OUT)
-GPIO.output(BUZZER_PIN, GPIO.LOW)
-GPIO.output(LED_PIN, GPIO.LOW)
+# Initialize GPIO states
+buzzer.off()
+led.off()
 
-print("🔌 Testing GPIO devices...")
-# Test both devices quickly at startup
-try:
-    # Test LED
-    GPIO.output(LED_PIN, GPIO.HIGH)
-    time.sleep(0.5)
-    GPIO.output(LED_PIN, GPIO.LOW)
-    
-    # Test Buzzer
-    GPIO.output(BUZZER_PIN, GPIO.HIGH)
-    time.sleep(0.2) 
-    GPIO.output(BUZZER_PIN, GPIO.LOW)
-    
-    print("✅ GPIO devices tested successfully")
-except Exception as e:
-    print(f"⚠️ GPIO test error: {e}")
-
+# Thread synchronization lock
+alarm_lock = Lock()
 
 # Function to activate alarm for specified duration
 def activate_alarm(duration=10):
-    try:
-        # Try using gpiozero first
+    with alarm_lock:
         buzzer.on()
         led.on()
-    except:
-        # Fallback to direct GPIO control
-        pass
+        print(f"🚨 DROWNING DETECTED! Alarm activated for {duration} seconds")
     
-    # Always use direct GPIO control to ensure devices activate
-    GPIO.output(BUZZER_PIN, GPIO.HIGH)
-    GPIO.output(LED_PIN, GPIO.HIGH)
-    
-    print(f"🚨 DROWNING DETECTED! Alarm activated for {duration} seconds")
-    
-    # Keep alarm on for the duration
     time.sleep(duration)
     
-    # Turn off devices
-    try:
+    with alarm_lock:
         buzzer.off()
         led.off()
-    except:
-        pass
-    
-    GPIO.output(BUZZER_PIN, GPIO.LOW)
-    GPIO.output(LED_PIN, GPIO.LOW)
-    print("✅ Alarm deactivated")
+        print("✅ Alarm deactivated")
 
 # Parse resolution
 resolution = args.resolution.split("x")
@@ -105,33 +67,41 @@ model = YOLO(args.model)
 labels = model.names
 print(f"✅ Loaded YOLO model from {args.model}")
 print(f"📊 Detection classes: {labels}")
+print(f"🎯 Detection confidence threshold: {args.confidence}")
 
-# Initialize Picamera2
+# Initialize Picamera2 with optimized settings for lower latency
 if args.source != "picamera0":
     print(f'⚠️ Only Raspberry Pi camera is supported. Ignoring "{args.source}" and using picamera0.')
 
-print("📷 Initializing camera...")
 picam = Picamera2()
 
-# Use lowest latency configuration available
+# Create optimized configuration
 config = picam.create_preview_configuration(
     main={"format": "RGB888", "size": (resW, resH)},
-    buffer_count=4,  # More buffers can help with latency
-    queue=False,     # Queue=False for lower latency
-    controls={"FrameDurationLimits": (33333, 33333)}  # Force ~30fps
+    lores={"size": (640, 480)},  # Lower resolution stream for faster processing if needed
+    display="lores",
+    buffer_count=1  # Reduce buffer count to minimize latency
 )
 
+# Configure and optimize camera settings
 picam.configure(config)
-picam.start()
-print(f"📷 Camera initialized at resolution {resW}x{resH}")
 
-# Initialize camera and warm up
-start_time = time.time()
-while time.time() - start_time < 2:
-    # Capture and discard frames during warmup to stabilize the pipeline
-    _ = picam.capture_array()
-    
-print("✅ Camera ready")
+# Set controls for better performance
+controls = Controls(picam)
+controls.FrameDurationLimits = (33333, 33333)  # Force ~30fps (in microseconds)
+controls.FrameRate = 30.0
+
+# Start camera with minimal delays
+print(f"📷 Initializing camera at resolution {resW}x{resH}...")
+picam.start()
+
+# Quick warmup sequence
+for _ in range(5):
+    # Capture and discard frames to warm up the camera pipeline
+    picam.capture_array()
+    time.sleep(0.1)
+
+print("📷 Camera initialized and ready")
 
 # Set bounding box colors
 bbox_colors = [(164,120,87), (68,148,228), (93,97,209), (178,182,133), (88,159,106), 
@@ -146,26 +116,21 @@ avg_frame_rate = 0
 alarm_active = False
 alarm_thread = None
 
+# Initialize counter for consecutive drowning detections to reduce false positives
+consecutive_drowning = 0
+DROWNING_THRESHOLD = 2  # Number of consecutive frames with drowning to trigger alarm
+
 print("🔍 Starting drowning detection... Press 'q' to quit, 's' to pause")
 
-# Add a debugging function to manually trigger the alarm
-def manual_alarm_test():
-    print("🧪 Testing alarm manually...")
-    test_thread = Thread(target=activate_alarm, args=(2,))
-    test_thread.daemon = True
-    test_thread.start()
-
 # Main detection loop
-print("⚙️ Optimizing for low latency...")
-
 while True:
     t_start = time.perf_counter()
     
-    # Capture frame with lowest possible latency
+    # Capture frame with minimal processing
     frame = picam.capture_array()
     
     # Run YOLO detection with optimized settings
-    results = model(frame, verbose=False, conf=0.4)  # Lower confidence threshold for better sensitivity
+    results = model(frame, verbose=False, conf=args.confidence)
     
     # Extract detections
     detections = results[0].boxes
@@ -187,7 +152,7 @@ while True:
         conf = detections[i].conf.item()
         
         # Draw box if confidence threshold is high enough
-        if conf > 0.5:
+        if conf > args.confidence:
             total_objects += 1
             color = bbox_colors[classidx % 10]
             cv2.rectangle(frame, (xmin,ymin), (xmax,ymax), color, 2)
@@ -204,9 +169,23 @@ while True:
                 # Highlight drowning detection with a thicker box
                 cv2.rectangle(frame, (xmin,ymin), (xmax,ymax), (0,0,255), 4)
     
-    # Activate alarm if drowning is detected and alarm is not already active
-    if drowning_count > 0 and not alarm_active:
+    # Update consecutive drowning counter
+    if drowning_count > 0:
+        consecutive_drowning += 1
+    else:
+        consecutive_drowning = 0
+    
+    # Activate alarm if drowning is detected for consecutive frames and alarm is not already active
+    if consecutive_drowning >= DROWNING_THRESHOLD and not alarm_active:
         alarm_active = True
+        
+        # Save drowning detection image
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        filename = f'drowning_detected_{timestamp}.png'
+        cv2.imwrite(filename, frame)
+        print(f"📸 Drowning detection captured and saved as '{filename}'")
+        
+        # Start alarm thread
         alarm_thread = Thread(target=activate_alarm)
         alarm_thread.daemon = True
         alarm_thread.start()
@@ -217,7 +196,7 @@ while True:
         cv2.putText(frame, alert_text, (int(resW/2)-150, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255), 2)
     
     # Reset alarm_active flag when alarm thread is finished
-    if alarm_active and not alarm_thread.is_alive():
+    if alarm_active and (not alarm_thread or not alarm_thread.is_alive()):
         alarm_active = False
     
     # Calculate and display FPS
@@ -235,14 +214,18 @@ while True:
     cv2.putText(frame, f'Objects: {total_objects}', (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
     cv2.putText(frame, f'Drowning: {drowning_count}', (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
     
+    # Display consecutive drowning count
+    cv2.putText(frame, f'Cons. Drowning: {consecutive_drowning}/{DROWNING_THRESHOLD}', (10, 120), 
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+    
     # Display alarm status
     if alarm_active:
         cv2.putText(frame, "ALARM ACTIVE", (resW-200, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
     
-    # Display the frame
+    # Display the frame with minimal delay
     cv2.imshow("Drowning Detection", frame)
     
-    # Check for key presses - use a shorter wait time for better responsiveness
+    # Check for key presses with minimal blocking
     key = cv2.waitKey(1) & 0xFF
     
     if key == ord('q'):  # Press 'q' to quit
@@ -253,24 +236,14 @@ while True:
         cv2.waitKey(0)
         print("▶️ Program resumed.")
     elif key == ord('p'):  # Press 'p' to save a picture of results on this frame
-        cv2.imwrite('drowning_capture.png', frame)
-        print("📸 Frame captured and saved as 'drowning_capture.png'")
-    elif key == ord('t'):  # Press 't' to test the alarm (without drowning detection)
-        manual_alarm_test()
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        filename = f'drowning_capture_{timestamp}.png'
+        cv2.imwrite(filename, frame)
+        print(f"📸 Frame captured and saved as '{filename}'")
 
 # Clean up
 print(f"📊 Average FPS: {avg_frame_rate:.2f}")
-try:
-    buzzer.off()
-    led.off()
-except:
-    pass
-    
-# Ensure GPIO pins are properly cleaned up
-GPIO.output(BUZZER_PIN, GPIO.LOW)
-GPIO.output(LED_PIN, GPIO.LOW)
-GPIO.cleanup()
-
+buzzer.off()  # Ensure buzzer is off when exiting
+led.off()     # Ensure LED is off when exiting
 picam.close()
 cv2.destroyAllWindows()
-print("👋 Program terminated successfully")
