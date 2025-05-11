@@ -19,6 +19,8 @@ pip install opencv-python-headless  # Lightweight OpenCV for Pi
 
 pip install git+https://github.com/seveas/python-prctl.git
 
+pip3 list | grep picamera
+
 
 
 
