@@ -21,7 +21,7 @@ parser.add_argument('--source', help='Video source, should be "picamera0" for Ra
 parser.add_argument('--resolution', help='Resolution in WxH format (example: "1280x720")',
                     default="1280x720")
 parser.add_argument('--confidence', help='Confidence threshold for detections (0.0-1.0)',
-                    type=float, default=0.4)
+                    type=float, default=0.5)
 args = parser.parse_args()
 
 # GPIO pin setup
