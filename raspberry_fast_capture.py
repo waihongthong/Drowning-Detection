@@ -1,55 +1,35 @@
+from picamera2 import Picamera2
 import cv2
 import time
 
-# Capture parameters
-width = 640
-height = 240
-max_frames = 300
-
-# Initialize camera
-cap = cv2.VideoCapture(0)
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-cap.set(cv2.CAP_PROP_FPS, 30)  # Adjust as needed
-
-# Check if camera opened successfully
-if not cap.isOpened():
-    print("Error: Could not open camera.")
-    exit()
+picam2 = Picamera2()
+picam2.configure(picam2.create_video_configuration(main={"size": (640, 240), "format": "XRGB8888"}))
+picam2.start()
 
 frames = []
-print("Recording...")
+max_frames = 300
 
-start_time = time.time()
+print("Recording...")
+start = time.time()
 
 for _ in range(max_frames):
-    ret, frame = cap.read()
-    if not ret:
-        print("Error: Failed to capture frame.")
-        break
-
+    frame = picam2.capture_array()
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     frames.append(gray)
 
-end_time = time.time()
-cap.release()
+end = time.time()
+fps = len(frames) / (end - start)
+print(f"Done! Result: {fps:.2f} fps")
 
-elapsed = end_time - start_time
-print(f"Done! Result: {len(frames) / elapsed:.2f} fps")
-
-# Write to AVI file
-print("Writing frames to disk...")
-out = cv2.VideoWriter("slow_motion.avi", cv2.VideoWriter_fourcc(*'MJPG'), 30, (width, height))
-for frame in frames:
-    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
-    out.write(rgb_frame)
+# Save video
+out = cv2.VideoWriter("slow_motion.avi", cv2.VideoWriter_fourcc(*'MJPG'), 30, (640, 240))
+for f in frames:
+    out.write(cv2.cvtColor(f, cv2.COLOR_GRAY2BGR))
 out.release()
 
 # Display video
-print("Display frames with OpenCV...")
-for frame in frames:
-    cv2.imshow("Slow Motion", frame)
+for f in frames:
+    cv2.imshow("Slow Motion", f)
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
-
 cv2.destroyAllWindows()
