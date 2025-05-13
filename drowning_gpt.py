@@ -115,11 +115,11 @@ if args.source != "picamera0":
 
 picam = Picamera2()
 
-# Use video configuration instead of preview for better performance
-# Using XRGB8888 format like in raspberry_fast_capture.py
-config = picam.create_video_configuration(
-    main={"format": "XRGB8888", "size": (resW, resH)},
-    buffer_count=1  # Minimal buffer for lower latency
+# Use preview configuration which is more stable
+# Using RGB888 format which is more compatible across different Raspberry Pi models
+config = picam.create_preview_configuration(
+    main={"format": "RGB888", "size": (resW, resH)},
+    buffer_count=2  # Increase buffer count for stability
 )
 
 # Configure camera
@@ -129,8 +129,9 @@ picam.configure(config)
 if CONTROLS_AVAILABLE:
     try:
         controls = Controls(picam)
-        controls.FrameDurationLimits = (16666, 16666)  # Force ~60fps (in microseconds) for faster capture
-        controls.FrameRate = 60.0  # Increase frame rate
+        # Use more conservative frame rate settings
+        controls.FrameDurationLimits = (33333, 33333)  # Force ~30fps (in microseconds)
+        controls.FrameRate = 30.0
         # Add auto-exposure and auto-white-balance for better image quality
         controls.AeEnable = True
         controls.AwbEnable = True
@@ -153,15 +154,22 @@ def filter_detections(detections, min_area=args.min_area, max_area=args.max_area
             filtered.append(detections[i])
     return filtered
 
-# Start camera with minimal delays
+# Start camera with show_preview=False
 print(f"📷 Initializing camera at resolution {resW}x{resH}...")
-picam.start()  # Don't show preview during startup
+picam.start(show_preview=False)
 
-# Shorter warm-up sequence with minimal delay
+# Properly warm up camera
 print("Warming up camera...")
-for _ in range(2):  # Reduced warm-up frames
-    picam.capture_array()
-    time.sleep(0.01)  # Reduced delay
+for _ in range(5):  # Increased warm-up frames for stability
+    try:
+        frame = picam.capture_array()
+        # Verify frame shape to ensure valid capture
+        if frame is not None and len(frame.shape) == 3:
+            print(f"Camera warmed up with frame shape: {frame.shape}")
+        time.sleep(0.1)  # Slightly longer delay for stability
+    except Exception as e:
+        print(f"Warning during warmup: {e}")
+        time.sleep(0.2)
 
 print("📷 Camera initialized and ready")
 
@@ -186,32 +194,43 @@ DROWNING_THRESHOLD = args.consecutive
 drowning_confidences = []
 MIN_AVG_CONFIDENCE = 0.7  # Minimum average confidence to trigger alarm
 
-# Setup processing queue for threaded processing - use a smaller queue size for lower latency
-frame_queue = Queue(maxsize=1)  # Reduced from 2 to 1 for less latency
-process_results_queue = Queue(maxsize=1)  # Reduced from 2 to 1 for less latency
+# Setup processing queue for threaded processing
+frame_queue = Queue(maxsize=2)  # Increased queue size for stability
+process_results_queue = Queue(maxsize=2)
 processing_active = True
 
 # Function to process frames in a separate thread
 def process_frames():
     while processing_active:
-        if frame_queue.empty():
-            time.sleep(0.001)  # Reduced sleep time for more responsive processing
-            continue
-            
-        frame = frame_queue.get()
-        if frame is None:  # None is sentinel to exit
-            break
-            
-        # Process frame with YOLO
-        results = model(frame, verbose=False, conf=args.confidence)
-        
-        # Filter detections by size
-        filtered_detections = filter_detections(results[0].boxes)
-        
-        # Put results in queue for main thread to display
-        if not process_results_queue.full():  # Check if queue is full before putting
-            process_results_queue.put((frame, filtered_detections))
-        frame_queue.task_done()
+        try:
+            if frame_queue.empty():
+                time.sleep(0.01)  # Slightly longer sleep to reduce CPU usage
+                continue
+                
+            frame = frame_queue.get()
+            if frame is None:  # None is sentinel to exit
+                break
+                
+            # Process frame with YOLO (with error handling)
+            try:
+                results = model(frame, verbose=False, conf=args.confidence)
+                
+                # Filter detections by size
+                filtered_detections = filter_detections(results[0].boxes)
+                
+                # Put results in queue for main thread to display
+                if not process_results_queue.full():
+                    process_results_queue.put((frame, filtered_detections))
+            except Exception as e:
+                print(f"Error processing frame: {e}")
+                # Put the original frame back so we can at least show something
+                if not process_results_queue.full():
+                    process_results_queue.put((frame, []))
+                    
+            frame_queue.task_done()
+        except Exception as e:
+            print(f"Error in processing thread: {e}")
+            time.sleep(0.1)  # Prevent tight loop on error
 
 # Start processing thread with higher priority
 processing_thread = Thread(target=process_frames, daemon=True)
@@ -224,12 +243,21 @@ running = True
 while running:
     t_start = time.perf_counter()
     
-    # Capture frame - direct capture like in raspberry_fast_capture.py
-    frame = picam.capture_array()
-    
-    # Put frame in queue for processing thread
-    if not frame_queue.full():
-        frame_queue.put(frame.copy())
+    # Capture frame - with error handling
+    try:
+        frame = picam.capture_array()
+        
+        # Convert frame if necessary (some formats like XRGB8888 need conversion)
+        if frame.shape[2] == 4:  # If format has 4 channels like XRGB8888
+            frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2RGB)
+        
+        # Put frame in queue for processing thread
+        if not frame_queue.full():
+            frame_queue.put(frame.copy())
+    except Exception as e:
+        print(f"Error capturing frame: {e}")
+        time.sleep(0.1)  # Small delay to prevent CPU overload on errors
+        continue
     
     # Get processed results if available
     if not process_results_queue.empty():
