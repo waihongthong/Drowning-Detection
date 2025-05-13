@@ -15,44 +15,40 @@ def main():
     picam2.configure(config)
     picam2.start()
 
-    # Frame capture settings
-    max_frames = 300
+    # Frame capture setup
     frames = []
-    print("Recording...")
+    print("Recording... Press 'q' to stop.")
 
     start_time = time.time()
+    frame_count = 0
 
-    for i in range(max_frames):
-        # Always get the latest frame
+    while True:
         frame = picam2.capture_array()
-
-        # Optional: convert to grayscale for processing
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-        # Save frame to list
         frames.append(gray)
+        frame_count += 1
 
-        # Display real-time frame
+        # Display real-time feed
         cv2.imshow("Live Feed", gray)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
     end_time = time.time()
-    fps = len(frames) / (end_time - start_time)
-    print(f"Done! Captured {len(frames)} frames at {fps:.2f} fps.")
+    fps = frame_count / (end_time - start_time)
+    print(f"Done! Captured {frame_count} frames at {fps:.2f} fps.")
 
-    # Stop camera
     picam2.stop()
 
     # Save as video file
     print("Saving video...")
     out = cv2.VideoWriter("output.avi", cv2.VideoWriter_fourcc(*'MJPG'), 30, (width, height))
     for f in frames:
-        rgb = cv2.cvtColor(f, cv2.COLOR_GRAY2BGR)  # Convert back to 3-channel
+        rgb = cv2.cvtColor(f, cv2.COLOR_GRAY2BGR)
         out.write(rgb)
     out.release()
 
-    print("Playback video...")
+    # Playback the video
+    print("Playback video... Press 'q' to quit.")
     for f in frames:
         cv2.imshow("Playback", f)
         if cv2.waitKey(30) & 0xFF == ord('q'):
