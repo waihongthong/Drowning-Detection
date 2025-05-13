@@ -21,24 +21,22 @@ pip install git+https://github.com/seveas/python-prctl.git
 
 pip3 list | grep picamera
 
-(env) pi@raspberrypi:~/Desktop/drowning $ python drowning_gpt.py --model=best_ncnn_model --resolution 320x240 --confidence 0.5
+(env) pi@raspberrypi:~/Desktop/drowning $ python picam_capture.py
+[0:06:13.235553216] [1555]  INFO Camera camera_manager.cpp:326 libcamera v0.5.0+59-d83ff0a4
+[0:06:13.278852324] [1558] ERROR DmaBufAllocator dma_buf_allocator.cpp:119 Could not open any dma-buf provider
+[0:06:13.315660121] [1558]  WARN RPiSdn sdn.cpp:40 Using legacy SDN tuning - please consider moving SDN inside rpi.denoise
+[0:06:13.320242587] [1558] ERROR RPI vc4.cpp:216 Failed to register camera imx219 10-0010: -12
 Traceback (most recent call last):
-  File "/home/pi/Desktop/drowning/drowning_gpt.py", line 11, in <module>
-    from picamera2 import Picamera2
-  File "/usr/lib/python3/dist-packages/picamera2/__init__.py", line 11, in <module>
-    from .picamera2 import Picamera2, Preview
-  File "/usr/lib/python3/dist-packages/picamera2/picamera2.py", line 30, in <module>
-    from picamera2.encoders import Encoder, H264Encoder, MJPEGEncoder, Quality
-  File "/usr/lib/python3/dist-packages/picamera2/encoders/__init__.py", line 5, in <module>
-    from .encoder import Encoder, Quality
-  File "/usr/lib/python3/dist-packages/picamera2/encoders/encoder.py", line 12, in <module>
-    from ..request import _MappedBuffer
-  File "/usr/lib/python3/dist-packages/picamera2/request.py", line 13, in <module>
-    import simplejpeg
-  File "/usr/lib/python3/dist-packages/simplejpeg/__init__.py", line 1, in <module>
-    from ._jpeg import encode_jpeg, encode_jpeg_yuv_planes
-  File "simplejpeg/_jpeg.pyx", line 1, in init simplejpeg._jpeg
-ValueError: numpy.dtype size changed, may indicate binary incompatibility. Expected 96 from C header, got 88 from PyObject
+  File "/home/pi/Desktop/drowning/picam_capture.py", line 65, in <module>
+    main()
+  File "/home/pi/Desktop/drowning/picam_capture.py", line 8, in main
+    picam2 = Picamera2()
+             ^^^^^^^^^^^
+  File "/usr/lib/python3/dist-packages/picamera2/picamera2.py", line 281, in __init__
+    camera_num = self.global_camera_info()[camera_num]['Num']
+                 ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+IndexError: list index out of range
+
 
 
 
