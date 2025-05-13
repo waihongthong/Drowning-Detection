@@ -35,16 +35,16 @@ parser.add_argument('--model', help='Path to YOLO model file (example: "best_ncn
                     required=True)
 parser.add_argument('--source', help='Video source, should be "picamera0" for Raspberry Pi camera',
                     default="picamera0")
-parser.add_argument('--resolution', help='Resolution in WxH format (example: "1280x720")',
-                    default="1280x720")
+parser.add_argument('--resolution', help='Resolution in WxH format (example: "640x480")',
+                    default="640x480")  # Reduced default resolution for better performance
 parser.add_argument('--confidence', help='Confidence threshold for detections (0.0-1.0)',
-                    type=float, default=0.6)  # Increased from 0.4 to reduce false positives
+                    type=float, default=0.6)
 parser.add_argument('--consecutive', help='Number of consecutive detections required to trigger alarm',
-                    type=int, default=5)  # Increased from 2 for better reliability
+                    type=int, default=5)
 parser.add_argument('--min-area', help='Minimum detection area in pixels',
-                    type=int, default=2000)  # Minimum area filter
+                    type=int, default=2000)
 parser.add_argument('--max-area', help='Maximum detection area in pixels',
-                    type=int, default=200000)  # Maximum area filter
+                    type=int, default=200000)
 args = parser.parse_args()
 
 # GPIO pin setup
@@ -115,9 +115,10 @@ if args.source != "picamera0":
 
 picam = Picamera2()
 
-# Create optimized configuration for lower latency
-config = picam.create_preview_configuration(
-    main={"format": "RGB888", "size": (resW, resH)},
+# Use video configuration instead of preview for better performance
+# Using XRGB8888 format like in raspberry_fast_capture.py
+config = picam.create_video_configuration(
+    main={"format": "XRGB8888", "size": (resW, resH)},
     buffer_count=1  # Minimal buffer for lower latency
 )
 
@@ -128,8 +129,8 @@ picam.configure(config)
 if CONTROLS_AVAILABLE:
     try:
         controls = Controls(picam)
-        controls.FrameDurationLimits = (33333, 33333)  # Force ~30fps (in microseconds)
-        controls.FrameRate = 30.0
+        controls.FrameDurationLimits = (16666, 16666)  # Force ~60fps (in microseconds) for faster capture
+        controls.FrameRate = 60.0  # Increase frame rate
         # Add auto-exposure and auto-white-balance for better image quality
         controls.AeEnable = True
         controls.AwbEnable = True
@@ -154,13 +155,13 @@ def filter_detections(detections, min_area=args.min_area, max_area=args.max_area
 
 # Start camera with minimal delays
 print(f"📷 Initializing camera at resolution {resW}x{resH}...")
-picam.start(show_preview=False)  # Don't show preview during startup
+picam.start()  # Don't show preview during startup
 
-# Shorter warm-up sequence
+# Shorter warm-up sequence with minimal delay
 print("Warming up camera...")
-for _ in range(3):
+for _ in range(2):  # Reduced warm-up frames
     picam.capture_array()
-    time.sleep(0.05)
+    time.sleep(0.01)  # Reduced delay
 
 print("📷 Camera initialized and ready")
 
@@ -170,7 +171,7 @@ bbox_colors = [(164,120,87), (68,148,228), (93,97,209), (178,182,133), (88,159,1
 
 # Initialize FPS calculation variables
 frame_rate_buffer = []
-fps_avg_len = 30
+fps_avg_len = 10  # Reduced for more responsive FPS display
 avg_frame_rate = 0
 
 # Alarm state control
@@ -185,16 +186,16 @@ DROWNING_THRESHOLD = args.consecutive
 drowning_confidences = []
 MIN_AVG_CONFIDENCE = 0.7  # Minimum average confidence to trigger alarm
 
-# Setup processing queue for threaded processing
-frame_queue = Queue(maxsize=2)
-process_results_queue = Queue(maxsize=2)
+# Setup processing queue for threaded processing - use a smaller queue size for lower latency
+frame_queue = Queue(maxsize=1)  # Reduced from 2 to 1 for less latency
+process_results_queue = Queue(maxsize=1)  # Reduced from 2 to 1 for less latency
 processing_active = True
 
 # Function to process frames in a separate thread
 def process_frames():
     while processing_active:
         if frame_queue.empty():
-            time.sleep(0.01)
+            time.sleep(0.001)  # Reduced sleep time for more responsive processing
             continue
             
         frame = frame_queue.get()
@@ -208,10 +209,11 @@ def process_frames():
         filtered_detections = filter_detections(results[0].boxes)
         
         # Put results in queue for main thread to display
-        process_results_queue.put((frame, filtered_detections))
+        if not process_results_queue.full():  # Check if queue is full before putting
+            process_results_queue.put((frame, filtered_detections))
         frame_queue.task_done()
 
-# Start processing thread
+# Start processing thread with higher priority
 processing_thread = Thread(target=process_frames, daemon=True)
 processing_thread.start()
 
@@ -222,7 +224,7 @@ running = True
 while running:
     t_start = time.perf_counter()
     
-    # Capture frame
+    # Capture frame - direct capture like in raspberry_fast_capture.py
     frame = picam.capture_array()
     
     # Put frame in queue for processing thread
@@ -343,7 +345,7 @@ while running:
         # Display the processed frame
         cv2.imshow("Drowning Detection", processed_frame)
     else:
-        # If no processed frame yet, show raw frame
+        # If no processed frame yet, show raw frame - better user experience
         cv2.imshow("Drowning Detection", frame)
     
     # Check for key presses with minimal blocking
