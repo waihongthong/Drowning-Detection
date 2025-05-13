@@ -19,8 +19,8 @@ def main():
     frames = []
     print("Recording... Press 'q' to stop.")
 
-    start_time = time.time()
     frame_count = 0
+    prev_time = time.time()
 
     while True:
         frame = picam2.capture_array()
@@ -28,18 +28,29 @@ def main():
         frames.append(gray)
         frame_count += 1
 
-        # Display real-time feed
-        cv2.imshow("Live Feed", gray)
+        # Calculate FPS
+        current_time = time.time()
+        fps = 1.0 / (current_time - prev_time)
+        prev_time = current_time
+
+        # Overlay FPS on frame
+        display_frame = gray.copy()
+        cv2.putText(display_frame, f"FPS: {fps:.2f}", (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255), 2)
+
+        # Show real-time feed
+        cv2.imshow("Live Feed", display_frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
-    end_time = time.time()
-    fps = frame_count / (end_time - start_time)
-    print(f"Done! Captured {frame_count} frames at {fps:.2f} fps.")
+    # Stop and summarize
+    total_time = time.time() - prev_time
+    avg_fps = frame_count / total_time
+    print(f"Done! Captured {frame_count} frames. Average FPS: {avg_fps:.2f}")
 
     picam2.stop()
 
-    # Save as video file
+    # Save video
     print("Saving video...")
     out = cv2.VideoWriter("output.avi", cv2.VideoWriter_fourcc(*'MJPG'), 30, (width, height))
     for f in frames:
@@ -47,7 +58,7 @@ def main():
         out.write(rgb)
     out.release()
 
-    # Playback the video
+    # Playback
     print("Playback video... Press 'q' to quit.")
     for f in frames:
         cv2.imshow("Playback", f)
