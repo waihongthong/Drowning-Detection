@@ -1,33 +1,65 @@
-import cv2, queue as Queue, threading, time
+from picamera2 import Picamera2
+import cv2
+import time
+import numpy as np
 
+def main():
+    # Initialize Picamera2
+    picam2 = Picamera2()
 
-is_frame = True
-# bufferless VideoCapture
+    # Set resolution and configure camera
+    width, height = 640, 240
+    config = picam2.create_video_configuration(
+        main={"size": (width, height), "format": "XRGB8888"}
+    )
+    picam2.configure(config)
+    picam2.start()
 
+    # Frame capture settings
+    max_frames = 300
+    frames = []
+    print("Recording...")
 
-class VideoCaptureQ:
+    start_time = time.time()
 
-    def __init__(self, name):
-        self.cap = cv2.VideoCapture(name)
-        self.q = Queue.Queue()
-        t = threading.Thread(target=self._reader)
-        t.daemon = True
-        t.start()
+    for i in range(max_frames):
+        # Always get the latest frame
+        frame = picam2.capture_array()
 
-    # read frames as soon as they are available, keeping only most recent one
-    def _reader(self):
-        while True:
-            ret, frame = self.cap.read()
-            if not ret:
-                global is_frame
-                is_frame = False
-                break
-            if not self.q.empty():
-                try:
-                    self.q.get_nowait()   # discard previous (unprocessed) frame
-                except Queue.Empty:
-                    pass
-            self.q.put(frame)
+        # Optional: convert to grayscale for processing
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-    def read(self):
-        return self.q.get()
+        # Save frame to list
+        frames.append(gray)
+
+        # Display real-time frame
+        cv2.imshow("Live Feed", gray)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    end_time = time.time()
+    fps = len(frames) / (end_time - start_time)
+    print(f"Done! Captured {len(frames)} frames at {fps:.2f} fps.")
+
+    # Stop camera
+    picam2.stop()
+
+    # Save as video file
+    print("Saving video...")
+    out = cv2.VideoWriter("output.avi", cv2.VideoWriter_fourcc(*'MJPG'), 30, (width, height))
+    for f in frames:
+        rgb = cv2.cvtColor(f, cv2.COLOR_GRAY2BGR)  # Convert back to 3-channel
+        out.write(rgb)
+    out.release()
+
+    print("Playback video...")
+    for f in frames:
+        cv2.imshow("Playback", f)
+        if cv2.waitKey(30) & 0xFF == ord('q'):
+            break
+
+    cv2.destroyAllWindows()
+    print("Done.")
+
+if __name__ == "__main__":
+    main()
