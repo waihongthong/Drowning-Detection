@@ -21,6 +21,8 @@ pip install git+https://github.com/seveas/python-prctl.git
 
 pip3 list | grep picamera
 
+dpkg -l | grep raspberrypi-ui-mods
+
 (env) pi@raspberrypi:~/Desktop/drowning $ python drowning_gpt.py --model=best_ncnn_model --resolution 640x480 --confidence 0.5
 ✅ GPIO control available
 WARNING ⚠️ Unable to automatically guess model task, assuming 'task=detect'. Explicitly define task for your model, i.e. 'task=detect', 'segment', 'classify','pose' or 'obb'.
