@@ -1,9 +1,6 @@
 # Install GPIO library for Raspberry Pi
 sudo apt install python3-rpi.gpio -y
 
-# Update package list
-sudo apt update
-
 # Install Python3 and pip (if not already installed)
 sudo apt install python3 python3-pip -y
 
@@ -29,7 +26,10 @@ rm -f ~/.config/chromium/SingletonLock
 rm -f ~/.config/chromium/SingletonSocket
 rm -f ~/.config/chromium/SingletonCookie
 
-
+pi@pi:~ $ hostname -I
+192.168.0.16 10.207.200.239 2402:2200:2600:200:84e0:ef4e:2f33:aa2 2402:2200:2600:200:8c2a:4567:b0b2:8ffb 
+pi@pi:~ $ ip route | grep default
+default via 10.207.200.1 dev wlan0 proto dhcp src 10.207.200.239 metric 3003
 
 
 
