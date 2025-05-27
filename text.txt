@@ -23,8 +23,11 @@ pip3 list | grep picamera
 
 dpkg -l | grep raspberrypi-ui-mods
 
-pi@pi:~ $ chromium-browser --no-sandbox
-[6922:6922:0527/140423.327167:ERROR:chrome/browser/process_singleton_posix.cc:358] The profile appears to be in use by another Chromium process (1843) on another computer (raspberrypi). Chromium has locked the profile so that it doesn't get corrupted. If you are sure that no other processes are using this profile, you can unlock the profile and relaunch Chromium.
+ps aux | grep chromium
+
+rm -f ~/.config/chromium/SingletonLock
+rm -f ~/.config/chromium/SingletonSocket
+rm -f ~/.config/chromium/SingletonCookie
 [6922:6922:0527/140423.327418:ERROR:chrome/browser/ui/views/message_box_dialog.cc:198] Unable to show message box: Chromium - The profile appears to be in use by another Chromium process (1843) on another computer (raspberrypi). Chromium has locked the profile so that it doesn't get corrupted. If you are sure that no other processes are using this profile, you can unlock the profile and relaunch Chromium.
 
 
