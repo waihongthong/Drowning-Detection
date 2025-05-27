@@ -23,27 +23,10 @@ pip3 list | grep picamera
 
 dpkg -l | grep raspberrypi-ui-mods
 
-(env) pi@raspberrypi:~/Desktop/drowning $ python drowning_gpt.py --model=best_ncnn_model --resolution 640x480 --confidence 0.5
-✅ GPIO control available
-WARNING ⚠️ Unable to automatically guess model task, assuming 'task=detect'. Explicitly define task for your model, i.e. 'task=detect', 'segment', 'classify','pose' or 'obb'.
-Loading best_ncnn_model for NCNN inference...
-✅ Loaded YOLO model from best_ncnn_model
-📊 Detection classes: {0: 'drowning', 1: 'person out of water', 2: 'swimming'}
-🎯 Detection confidence threshold: 0.5
-🔄 Consecutive detections required: 5
-📏 Detection area filter: Min=2000, Max=200000 pixels
-[1:15:27.748650355] [2409]  INFO Camera camera_manager.cpp:326 libcamera v0.5.0+59-d83ff0a4
-[1:15:27.783690867] [2424]  WARN RPiSdn sdn.cpp:40 Using legacy SDN tuning - please consider moving SDN inside rpi.denoise
-[1:15:27.786286685] [2424]  INFO RPI vc4.cpp:447 Registered camera /base/soc/i2c0mux/i2c@1/imx219@10 to Unicam device /dev/media0 and ISP device /dev/media2
-[1:15:27.786399779] [2424]  INFO RPI pipeline_base.cpp:1121 Using configuration file '/usr/share/libcamera/pipeline/rpi/vc4/rpi_apps.yaml'
-[1:15:27.795296371] [2409]  INFO Camera camera.cpp:1205 configuring streams: (0) 640x480-XRGB8888 (1) 640x480-SBGGR10_CSI2P
-[1:15:27.796237656] [2424]  INFO RPI vc4.cpp:622 Sensor: /base/soc/i2c0mux/i2c@1/imx219@10 - Selected sensor format: 640x480-SBGGR10_1X10 - Selected unicam format: 640x480-pBAA
-✅ Camera controls configured for optimal performance
-📷 Initializing camera at resolution 640x480...
-Warming up camera...
-📷 Camera initialized and ready
-🔍 Starting drowning detection... Press 'q' to quit, 's' to pause
-Segmentation fault
+pi@pi:~ $ chromium-browser --no-sandbox
+[6922:6922:0527/140423.327167:ERROR:chrome/browser/process_singleton_posix.cc:358] The profile appears to be in use by another Chromium process (1843) on another computer (raspberrypi). Chromium has locked the profile so that it doesn't get corrupted. If you are sure that no other processes are using this profile, you can unlock the profile and relaunch Chromium.
+[6922:6922:0527/140423.327418:ERROR:chrome/browser/ui/views/message_box_dialog.cc:198] Unable to show message box: Chromium - The profile appears to be in use by another Chromium process (1843) on another computer (raspberrypi). Chromium has locked the profile so that it doesn't get corrupted. If you are sure that no other processes are using this profile, you can unlock the profile and relaunch Chromium.
+
 
 
 
