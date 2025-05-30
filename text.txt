@@ -44,6 +44,18 @@ wget https://github.com/nmilosev/pytorch-arm-builds/releases/download/v2.1.0/tor
 # Install it with pip (must match Python version)
 pip install torch-2.1.0-cp311-cp311-linux_aarch64.whl
 
+(env2) pi@raspberrypi:~ $ wget https://github.com/nmilosev/pytorch-arm-builds/releases/download/v2.1.0/torch-2.1.0-cp311-cp311-linux_aarch64.whl
+--2025-05-30 15:40:48--  https://github.com/nmilosev/pytorch-arm-builds/releases/download/v2.1.0/torch-2.1.0-cp311-cp311-linux_aarch64.whl
+Resolving github.com (github.com)... 20.205.243.166
+Connecting to github.com (github.com)|20.205.243.166|:443... connected.
+HTTP request sent, awaiting response... 404 Not Found
+2025-05-30 15:40:49 ERROR 404: Not Found.
+
+(env2) pi@raspberrypi:~ $ pip install torch-2.1.0-cp311-cp311-linux_aarch64.whl
+WARNING: Requirement 'torch-2.1.0-cp311-cp311-linux_aarch64.whl' looks like a filename, but the file does not exist
+Looking in indexes: https://pypi.org/simple, https://www.piwheels.org/simple
+Processing ./torch-2.1.0-cp311-cp311-linux_aarch64.whl
+ERROR: Could not install packages due to an OSError: [Errno 2] No such file or directory: '/home/pi/torch-2.1.0-cp311-cp311-linux_aarch64.whl'
 
 
 
