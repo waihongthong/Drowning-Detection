@@ -27,7 +27,8 @@ rm -f ~/.config/chromium/SingletonSocket
 rm -f ~/.config/chromium/SingletonCookie
 
 pip uninstall torch
-pip install torch==2.5.1+cpu torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+pip install https://github.com/nmilosev/pytorch-arm-builds/releases/download/v1.13.0/torch-1.13.0a0-cp311-cp311-linux_aarch64.whl
+
 
 
 
