@@ -26,16 +26,36 @@ rm -f ~/.config/chromium/SingletonLock
 rm -f ~/.config/chromium/SingletonSocket
 rm -f ~/.config/chromium/SingletonCookie
 
-pi@pi:~ $ hostname -I
-192.168.0.16 10.207.200.239 2402:2200:2600:200:84e0:ef4e:2f33:aa2 2402:2200:2600:200:8c2a:4567:b0b2:8ffb 
-pi@pi:~ $ ip route | grep default
-default via 10.207.200.1 dev wlan0 proto dhcp src 10.207.200.239 metric 3003
+(env) pi@raspberrypi:~/Desktop/drowning $ yolo export model=best2.pt format=ncnn
+Traceback (most recent call last):
+  File "/home/pi/env/bin/yolo", line 8, in <module>
+    sys.exit(entrypoint())
+             ^^^^^^^^^^^^
+  File "/home/pi/env/lib/python3.11/site-packages/ultralytics/cfg/__init__.py", line 555, in entrypoint
+    model = YOLO(model, task=task)
+            ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/env/lib/python3.11/site-packages/ultralytics/models/yolo/model.py", line 23, in __init__
+    super().__init__(model=model, task=task, verbose=verbose)
+  File "/home/pi/env/lib/python3.11/site-packages/ultralytics/engine/model.py", line 151, in __init__
+    self._load(model, task=task)
+  File "/home/pi/env/lib/python3.11/site-packages/ultralytics/engine/model.py", line 240, in _load
+    self.model, self.ckpt = attempt_load_one_weight(weights)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/env/lib/python3.11/site-packages/ultralytics/nn/tasks.py", line 806, in attempt_load_one_weight
+    ckpt, weight = torch_safe_load(weight)  # load ckpt
+                   ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/env/lib/python3.11/site-packages/ultralytics/nn/tasks.py", line 732, in torch_safe_load
+    ckpt = torch.load(file, map_location="cpu")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/env/lib/python3.11/site-packages/torch/serialization.py", line 1524, in load
+    raise pickle.UnpicklingError(_get_wo_message(str(e))) from None
+_pickle.UnpicklingError: Weights only load failed. This file can still be loaded, to do so you have two options, do those steps only if you trust the source of the checkpoint. 
+	(1) In PyTorch 2.6, we changed the default value of the `weights_only` argument in `torch.load` from `False` to `True`. Re-running `torch.load` with `weights_only` set to `False` will likely succeed, but it can result in arbitrary code execution. Do it only if you got the file from a trusted source.
+	(2) Alternatively, to load with `weights_only=True` please check the recommended steps in the following error message.
+	WeightsUnpickler error: Unsupported global: GLOBAL ultralytics.nn.tasks.DetectionModel was not an allowed global by default. Please use `torch.serialization.add_safe_globals([ultralytics.nn.tasks.DetectionModel])` or the `torch.serialization.safe_globals([ultralytics.nn.tasks.DetectionModel])` context manager to allowlist this global if you trust this class/function.
 
-(env) pi@raspberrypi:~/Desktop/drowning $ pip install flask
-Looking in indexes: https://pypi.org/simple, https://www.piwheels.org/simple
-Requirement already satisfied: flask in /usr/lib/python3/dist-packages (2.2.2)
-WARNING: Error parsing dependencies of send2trash: Expected matching RIGHT_PARENTHESIS for LEFT_PARENTHESIS, after version specifier
-    sys-platform (=="darwin") ; extra == 'objc'
+Check the documentation of torch.load to learn more about types accepted by default with weights_only https://pytorch.org/docs/stable/generated/torch.load.html.
+
                  ~^
 
 
