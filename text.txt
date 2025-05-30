@@ -26,8 +26,32 @@ rm -f ~/.config/chromium/SingletonLock
 rm -f ~/.config/chromium/SingletonSocket
 rm -f ~/.config/chromium/SingletonCookie
 
-pip uninstall torch
-pip install torch==2.2.0+cpu torchvision==0.17.0+cpu torchaudio==2.2.0+cpu --index-url https://download.pytorch.org/whl/cpu
+(env) pi@raspberrypi:~ $ pip install pytorch
+Looking in indexes: https://pypi.org/simple, https://www.piwheels.org/simple
+Collecting pytorch
+  Downloading pytorch-1.0.2.tar.gz (689 bytes)
+  Preparing metadata (setup.py) ... done
+Building wheels for collected packages: pytorch
+  DEPRECATION: Building 'pytorch' using the legacy setup.py bdist_wheel mechanism, which will be removed in a future version. pip 25.3 will enforce this behaviour change. A possible replacement is to use the standardized build interface by setting the `--use-pep517` option, (possibly combined with `--no-build-isolation`), or adding a `pyproject.toml` file to the source tree of 'pytorch'. Discussion can be found at https://github.com/pypa/pip/issues/6334
+  Building wheel for pytorch (setup.py) ... error
+  error: subprocess-exited-with-error
+  
+  × python setup.py bdist_wheel did not run successfully.
+  │ exit code: 1
+  ╰─> [6 lines of output]
+      Traceback (most recent call last):
+        File "<string>", line 2, in <module>
+        File "<pip-setuptools-caller>", line 35, in <module>
+        File "/tmp/pip-install-rlj657sr/pytorch_d162500e28d04ebbac32d2852c7e1085/setup.py", line 15, in <module>
+          raise Exception(message)
+      Exception: You tried to install "pytorch". The package named for PyTorch is "torch"
+      [end of output]
+  
+  note: This error originates from a subprocess, and is likely not a problem with pip.
+  ERROR: Failed building wheel for pytorch
+  Running setup.py clean for pytorch
+Failed to build pytorch
+ERROR: Failed to build installable wheels for some pyproject.toml based projects (pytorch)
 
 
 
