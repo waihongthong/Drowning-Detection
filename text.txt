@@ -22,29 +22,14 @@ dpkg -l | grep raspberrypi-ui-mods
 
 ps aux | grep chromium
 
-rm -f ~/.config/chromium/SingletonLock
-rm -f ~/.config/chromium/SingletonSocket
-rm -f ~/.config/chromium/SingletonCookie
+# Install PyTorch (CPU version for Raspberry Pi)
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
-git clone --recursive https://github.com/pytorch/pytorch
-cd pytorch
+# Install Ultralytics and NCNN
+pip install ultralytics ncnn
 
-export USE_NINJA=OFF
-export USE_MKLDNN=OFF
-
-pip3 install -r requirements.txt
-
-python3 setup.py install
-
-sudo apt update && sudo apt upgrade -y
-sudo apt install -y python3 python3-pip cmake git g++ libprotobuf-dev protobuf-compiler libopencv-dev
-python3 --version
-sudo apt install python3.9 python3.9-venv python3.9-dev
-sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.9 1
-python3 -m venv yolov8-env
-source yolov8-env/bin/activate
-pip install torch==1.13.0+cpu torchvision==0.14.0+cpu -f https://download.pytorch.org/whl/cpu/torch_stable.html
-pip install ultralytics==8.2.0
+# Now convert your model
+yolo export model=best.pt format=ncnn
 
 yolo export model=best2.pt format=ncnn
 
