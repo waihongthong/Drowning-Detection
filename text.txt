@@ -36,55 +36,13 @@ pip3 install -r requirements.txt
 
 python3 setup.py install
 
-pi@raspberrypi:~ $ python -m venv env2 --system-site-packages
-pi@raspberrypi:~ $ source env2/bin/activate
-(env2) pi@raspberrypi:~ $ pip install pytorch
-Looking in indexes: https://pypi.org/simple, https://www.piwheels.org/simple
-Collecting pytorch
-  Downloading pytorch-1.0.2.tar.gz (689 bytes)
-  Preparing metadata (setup.py) ... done
-Building wheels for collected packages: pytorch
-  Building wheel for pytorch (setup.py) ... error
-  error: subprocess-exited-with-error
-  
-  × python setup.py bdist_wheel did not run successfully.
-  │ exit code: 1
-  ╰─> [6 lines of output]
-      Traceback (most recent call last):
-        File "<string>", line 2, in <module>
-        File "<pip-setuptools-caller>", line 34, in <module>
-        File "/tmp/pip-install-7pzx0ame/pytorch_c58bfa3376214ffe80883e11698394db/setup.py", line 15, in <module>
-          raise Exception(message)
-      Exception: You tried to install "pytorch". The package named for PyTorch is "torch"
-      [end of output]
-  
-  note: This error originates from a subprocess, and is likely not a problem with pip.
-  ERROR: Failed building wheel for pytorch
-  Running setup.py clean for pytorch
-Failed to build pytorch
-Installing collected packages: pytorch
-  Running setup.py install for pytorch ... error
-  error: subprocess-exited-with-error
-  
-  × Running setup.py install for pytorch did not run successfully.
-  │ exit code: 1
-  ╰─> [6 lines of output]
-      Traceback (most recent call last):
-        File "<string>", line 2, in <module>
-        File "<pip-setuptools-caller>", line 34, in <module>
-        File "/tmp/pip-install-7pzx0ame/pytorch_c58bfa3376214ffe80883e11698394db/setup.py", line 11, in <module>
-          raise Exception(message)
-      Exception: You tried to install "pytorch". The package named for PyTorch is "torch"
-      [end of output]
-  
-  note: This error originates from a subprocess, and is likely not a problem with pip.
-error: legacy-install-failure
+sudo apt update
+sudo apt install libopenblas-dev libblas-dev m4 cmake cython python3-dev libatlas-base-dev -y
+# Download PyTorch wheel
+wget https://github.com/nmilosev/pytorch-arm-builds/releases/download/v2.1.0/torch-2.1.0-cp311-cp311-linux_aarch64.whl
 
-× Encountered error while trying to install package.
-╰─> pytorch
-
-note: This is an issue with the package mentioned above, not pip.
-hint: See above for output from the failure.
+# Install it with pip (must match Python version)
+pip install torch-2.1.0-cp311-cp311-linux_aarch64.whl
 
 
 
