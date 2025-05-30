@@ -26,15 +26,15 @@ rm -f ~/.config/chromium/SingletonLock
 rm -f ~/.config/chromium/SingletonSocket
 rm -f ~/.config/chromium/SingletonCookie
 
-# Install dependencies
-sudo apt update
-sudo apt install libopenblas-dev libblas-dev m4 cmake cython python3-dev libatlas-base-dev -y
+git clone --recursive https://github.com/pytorch/pytorch
+cd pytorch
 
-# Download wheel file
-wget https://github.com/nmilosev/pytorch-arm-builds/releases/download/v2.1.0/torch-2.1.0-cp311-cp311-linux_aarch64.whl
+export USE_NINJA=OFF
+export USE_MKLDNN=OFF
 
-# Install the wheel
-pip install torch-2.1.0-cp311-cp311-linux_aarch64.whl
+pip3 install -r requirements.txt
+
+python3 setup.py install
 
 
 
