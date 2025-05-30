@@ -46,4 +46,6 @@ source yolov8-env/bin/activate
 pip install torch==1.13.0+cpu torchvision==0.14.0+cpu -f https://download.pytorch.org/whl/cpu/torch_stable.html
 pip install ultralytics==8.2.0
 
+yolo export model=best2.pt format=ncnn
+
 
