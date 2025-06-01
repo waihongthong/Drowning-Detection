@@ -38,6 +38,7 @@ CORS(app)  # Enable CORS for Flutter app
 camera = None
 model = None
 detection_active = False
+camera_active = False
 detection_status = {
     'is_detecting': False,
     'drowning_detected': False,
@@ -130,24 +131,43 @@ def filter_detections(detections, min_area=None, max_area=None):
 
 def initialize_camera():
     """Initialize Picamera2 for streaming"""
-    global camera
+    global camera, camera_active
     try:
         with camera_lock:
             if camera is not None:
                 return True
                 
+            print("🔄 Initializing camera...")
             camera = Picamera2()
-            config = camera.create_preview_configuration(
-                main={"format": "RGB888", "size": (CAMERA_WIDTH, CAMERA_HEIGHT)},
-                buffer_count=2
-            )
-            camera.configure(config)
+            
+            # Try different configurations if the first one fails
+            try:
+                config = camera.create_preview_configuration(
+                    main={"format": "RGB888", "size": (CAMERA_WIDTH, CAMERA_HEIGHT)},
+                    buffer_count=4  # Increased buffer count
+                )
+                camera.configure(config)
+            except Exception as e:
+                print(f"Failed with RGB888, trying XRGB8888: {e}")
+                try:
+                    config = camera.create_preview_configuration(
+                        main={"format": "XRGB8888", "size": (CAMERA_WIDTH, CAMERA_HEIGHT)},
+                        buffer_count=4
+                    )
+                    camera.configure(config)
+                except Exception as e2:
+                    print(f"Failed with XRGB8888, trying YUV420: {e2}")
+                    config = camera.create_preview_configuration(
+                        main={"format": "YUV420", "size": (CAMERA_WIDTH, CAMERA_HEIGHT)},
+                        buffer_count=4
+                    )
+                    camera.configure(config)
             
             if CONTROLS_AVAILABLE:
                 try:
                     controls = Controls(camera)
-                    controls.FrameDurationLimits = (33333, 33333)  # ~30fps
-                    controls.FrameRate = 30.0
+                    controls.FrameDurationLimits = (33333, 66666)  # 15-30fps range
+                    controls.FrameRate = 20.0
                     controls.AeEnable = True
                     controls.AwbEnable = True
                 except Exception as e:
@@ -155,26 +175,39 @@ def initialize_camera():
             
             camera.start(show_preview=False)
             
-            # Warm up camera
-            for _ in range(5):
-                frame = camera.capture_array()
-                time.sleep(0.1)
-                
+            # Warm up camera with more attempts
+            print("🔄 Warming up camera...")
+            for i in range(10):
+                try:
+                    frame = camera.capture_array()
+                    if frame is not None and frame.size > 0:
+                        print(f"✅ Camera frame {i+1}/10 captured successfully")
+                        time.sleep(0.2)
+                    else:
+                        print(f"⚠️ Empty frame {i+1}/10")
+                        time.sleep(0.5)
+                except Exception as e:
+                    print(f"⚠️ Frame {i+1}/10 capture failed: {e}")
+                    time.sleep(0.5)
+                    
+            camera_active = True
             print("✅ Camera initialized successfully")
             return True
             
     except Exception as e:
         print(f"❌ Failed to initialize camera: {e}")
+        camera_active = False
         return False
 
 def cleanup_camera():
     """Clean up camera resources"""
-    global camera
+    global camera, camera_active
     try:
         with camera_lock:
             if camera is not None:
                 camera.close()
                 camera = None
+                camera_active = False
                 print("✅ Camera cleaned up")
     except Exception as e:
         print(f"Error cleaning up camera: {e}")
@@ -261,26 +294,76 @@ def process_detection(frame):
         print(f"Error processing detection: {e}")
         return frame, 0, 0, False
 
+def generate_test_frame():
+    """Generate a test frame when camera is not available"""
+    # Create a simple test image
+    frame = np.zeros((CAMERA_HEIGHT, CAMERA_WIDTH, 3), dtype=np.uint8)
+    frame[:] = (64, 128, 64)  # Dark green background
+    
+    # Add some text
+    cv2.putText(frame, 'Camera Test Frame', (50, CAMERA_HEIGHT//2 - 50), 
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+    cv2.putText(frame, f'Time: {datetime.now().strftime("%H:%M:%S")}', 
+                (50, CAMERA_HEIGHT//2), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    cv2.putText(frame, f'Resolution: {CAMERA_WIDTH}x{CAMERA_HEIGHT}', 
+                (50, CAMERA_HEIGHT//2 + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    
+    return frame
+
 def generate_frames():
     """Generate video frames for streaming with detection overlay"""
-    global camera, detection_status, frame_rate_buffer, consecutive_drowning, drowning_confidences
+    global camera, detection_status, frame_rate_buffer, consecutive_drowning, drowning_confidences, camera_active
+    
+    frame_count = 0
+    last_frame_time = time.time()
     
     while True:
         try:
             t_start = time.perf_counter()
+            frame = None
             
-            with camera_lock:
-                if camera is None:
-                    time.sleep(0.1)
-                    continue
-                    
-                frame = camera.capture_array()
-                
-                # Convert frame if necessary
-                if len(frame.shape) == 3 and frame.shape[2] == 4:
-                    frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2RGB)
-                elif len(frame.shape) == 3 and frame.shape[2] == 3:
-                    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            # Try to get frame from camera
+            if camera_active:
+                try:
+                    with camera_lock:
+                        if camera is not None:
+                            frame = camera.capture_array()
+                            
+                            # Check if frame is valid
+                            if frame is None or frame.size == 0:
+                                print("⚠️ Empty frame received from camera")
+                                frame = generate_test_frame()
+                        else:
+                            print("⚠️ Camera is None")
+                            frame = generate_test_frame()
+                            
+                except Exception as e:
+                    print(f"⚠️ Error capturing frame: {e}")
+                    frame = generate_test_frame()
+            else:
+                # Camera not active, use test frame
+                frame = generate_test_frame()
+            
+            # Ensure we have a frame
+            if frame is None:
+                print("⚠️ No frame available, using test frame")
+                frame = generate_test_frame()
+            
+            # Convert frame format if necessary
+            try:
+                if len(frame.shape) == 3:
+                    if frame.shape[2] == 4:  # RGBA
+                        frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2BGR)
+                    elif frame.shape[2] == 3 and frame.dtype == np.uint8:
+                        # Check if it's RGB or BGR
+                        if camera_active and camera is not None:
+                            # Picamera2 usually gives RGB, convert to BGR for OpenCV
+                            frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                elif len(frame.shape) == 2:  # Grayscale
+                    frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+            except Exception as e:
+                print(f"⚠️ Error converting frame format: {e}")
+                frame = generate_test_frame()
             
             # Process detection if active and model is loaded
             drowning_count = 0
@@ -317,7 +400,8 @@ def generate_frames():
             
             # Calculate FPS
             t_stop = time.perf_counter()
-            frame_rate_calc = 1.0 / (t_stop - t_start) if (t_stop - t_start) > 0 else 0
+            frame_time = t_stop - t_start
+            frame_rate_calc = 1.0 / frame_time if frame_time > 0 else 0
             
             if len(frame_rate_buffer) >= fps_avg_len:
                 frame_rate_buffer.pop(0)
@@ -334,45 +418,89 @@ def generate_frames():
                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
                 cv2.putText(frame, f'Objects: {total_objects}', 
                            (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                cv2.putText(frame, f'Frame: {frame_count}', 
+                           (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
                 
                 if detection_active:
                     cv2.putText(frame, f'Drowning: {drowning_count}', 
-                               (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-                    cv2.putText(frame, f'Consecutive: {consecutive_drowning}/{detection_config["consecutive_threshold"]}', 
                                (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                    cv2.putText(frame, f'Consecutive: {consecutive_drowning}/{detection_config["consecutive_threshold"]}', 
+                               (10, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
                 
                 if detection_status['drowning_detected']:
                     # Draw drowning alert
                     alert_text = "!!! DROWNING DETECTED !!!"
-                    cv2.putText(frame, alert_text, (50, 150), 
+                    cv2.putText(frame, alert_text, (50, 200), 
                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 5)
-                    cv2.putText(frame, alert_text, (50, 150), 
+                    cv2.putText(frame, alert_text, (50, 200), 
                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
                 
                 if detection_status['alarm_active']:
                     cv2.putText(frame, "ALARM ACTIVE", (CAMERA_WIDTH-200, 30), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                
+                # Add camera status
+                if not camera_active:
+                    cv2.putText(frame, "CAMERA: TEST MODE", (10, CAMERA_HEIGHT-30), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                else:
+                    cv2.putText(frame, "CAMERA: LIVE", (10, CAMERA_HEIGHT-30), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
             
-            # Encode frame as JPEG
-            ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            # Encode frame as JPEG with better quality settings
+            encode_params = [
+                cv2.IMWRITE_JPEG_QUALITY, 80,
+                cv2.IMWRITE_JPEG_PROGRESSIVE, 1,
+                cv2.IMWRITE_JPEG_OPTIMIZE, 1
+            ]
+            
+            ret, buffer = cv2.imencode('.jpg', frame, encode_params)
             if not ret:
+                print("⚠️ Failed to encode frame")
                 continue
                 
             frame_bytes = buffer.tobytes()
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
             
-            time.sleep(1.0 / STREAM_FPS)  # Control frame rate
+            # Debug info every 30 frames
+            frame_count += 1
+            if frame_count % 30 == 0:
+                current_time = time.time()
+                actual_fps = 30 / (current_time - last_frame_time) if frame_count > 30 else 0
+                print(f"📊 Frame {frame_count}: {len(frame_bytes)} bytes, FPS: {actual_fps:.1f}")
+                last_frame_time = current_time
+            
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n'
+                   b'Content-Length: ' + str(len(frame_bytes)).encode() + b'\r\n\r\n' + 
+                   frame_bytes + b'\r\n')
+            
+            # Control frame rate
+            time.sleep(max(0, 1.0/STREAM_FPS - frame_time))
             
         except Exception as e:
-            print(f"Error generating frame: {e}")
-            time.sleep(0.1)
+            print(f"❌ Error generating frame: {e}")
+            # Generate error frame
+            error_frame = generate_test_frame()
+            cv2.putText(error_frame, f'ERROR: {str(e)[:50]}', (10, CAMERA_HEIGHT//2 + 60), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+            
+            ret, buffer = cv2.imencode('.jpg', error_frame)
+            if ret:
+                frame_bytes = buffer.tobytes()
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n'
+                       b'Content-Length: ' + str(len(frame_bytes)).encode() + b'\r\n\r\n' + 
+                       frame_bytes + b'\r\n')
+            
+            time.sleep(1)  # Wait longer on error
 
 @app.route('/api/status')
 def get_status():
     """Get current detection status"""
     with status_lock:
-        return jsonify(detection_status)
+        status = detection_status.copy()
+        status['camera_active'] = camera_active
+        return jsonify(status)
 
 @app.route('/api/detection/start', methods=['POST'])
 def start_detection():
@@ -462,6 +590,7 @@ def get_device_info():
         'gpio_available': GPIO_AVAILABLE,
         'model_loaded': model is not None,
         'detection_active': detection_active,
+        'camera_active': camera_active,
         'timestamp': datetime.now().isoformat()
     })
 
@@ -490,8 +619,16 @@ def stop_alarm():
 @app.route('/video_feed')
 def video_feed():
     """Video streaming route"""
-    return Response(generate_frames(),
-                   mimetype='multipart/x-mixed-replace; boundary=frame')
+    print(f"📹 Video feed requested from {request.remote_addr}")
+    return Response(
+        generate_frames(),
+        mimetype='multipart/x-mixed-replace; boundary=frame',
+        headers={
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+        }
+    )
 
 @app.route('/api/camera/start', methods=['POST'])
 def start_camera():
@@ -507,6 +644,17 @@ def stop_camera():
     cleanup_camera()
     return jsonify({'success': True, 'message': 'Camera stopped'})
 
+@app.route('/api/camera/restart', methods=['POST'])
+def restart_camera():
+    """Restart camera"""
+    print("🔄 Restarting camera...")
+    cleanup_camera()
+    time.sleep(2)
+    if initialize_camera():
+        return jsonify({'success': True, 'message': 'Camera restarted successfully'})
+    else:
+        return jsonify({'success': False, 'error': 'Failed to restart camera'}), 500
+
 @app.route('/api/test', methods=['GET'])
 def test_connection():
     """Test API connection"""
@@ -516,7 +664,8 @@ def test_connection():
         'timestamp': datetime.now().isoformat(),
         'server_ip': request.host,
         'model_loaded': model is not None,
-        'detection_active': detection_active
+        'detection_active': detection_active,
+        'camera_active': camera_active
     })
 
 def activate_alarm(duration=10):
@@ -547,7 +696,7 @@ def health_check():
         'timestamp': datetime.now().isoformat(),
         'model_loaded': model is not None,
         'detection_active': detection_active,
-        'camera_active': camera is not None
+        'camera_active': camera_active
     })
 
 if __name__ == '__main__':
@@ -556,6 +705,8 @@ if __name__ == '__main__':
     parser.add_argument('--model', help='Path to YOLO model file', required=False)
     parser.add_argument('--auto-start', help='Auto-start detection after loading model', 
                        action='store_true', default=False)
+    parser.add_argument('--test-mode', help='Run in test mode without camera', 
+                       action='store_true', default=False)
     args = parser.parse_args()
     
     print("🚀 Starting Integrated Drowning Detection Web Server...")
@@ -563,8 +714,11 @@ if __name__ == '__main__':
     print("📹 Video stream available at: http://192.168.0.16:5000/video_feed")
     print("🔌 API endpoints available at: http://192.168.0.16:5000/api/")
     
-    # Initialize camera on startup
-    initialize_camera()
+    # Initialize camera on startup (unless in test mode)
+    if not args.test_mode:
+        initialize_camera()
+    else:
+        print("⚠️ Running in test mode - camera disabled")
     
     # Load model if provided
     if args.model:
