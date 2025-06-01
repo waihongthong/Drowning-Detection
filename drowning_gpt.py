@@ -710,9 +710,9 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     print("🚀 Starting Integrated Drowning Detection Web Server...")
-    print("📱 Flutter app can connect to: http://192.168.0.16:5000")
-    print("📹 Video stream available at: http://192.168.0.16:5000/video_feed")
-    print("🔌 API endpoints available at: http://192.168.0.16:5000/api/")
+    print("📱 Flutter app can connect to: http://10.207.200.139:5000")
+    print("📹 Video stream available at: http://10.207.200.139:5000/video_feed")
+    print("🔌 API endpoints available at: http://10.207.200.139:5000/api/")
     
     # Initialize camera on startup (unless in test mode)
     if not args.test_mode:
