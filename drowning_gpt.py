@@ -1,8 +1,5 @@
-#!/usr/bin/env python3
-"""
-Integrated Drowning Detection Web Server for Raspberry Pi
-Provides REST API, video streaming, and real-time drowning detection for Flutter mobile app
-"""
+"""Integrated Drowning Detection Web Server for Raspberry Pi
+Provides REST API, video streaming, and real-time drowning detection for Flutter mobile app"""
 
 import os
 import json
