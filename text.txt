@@ -17,14 +17,18 @@ pip install ultralytics ncnn
 yolo export model=best.pt format=ncnn
 
 
-pi@raspberrypi:~ $ curl -I http://10.207.200.139:5000/video_feed
-HTTP/1.1 200 OK
-Server: Werkzeug/3.1.3 Python/3.11.2
-Date: Sun, 01 Jun 2025 07:47:37 GMT
-Cache-Control: no-cache, no-store, must-revalidate
-Pragma: no-cache
-Expires: 0
-Content-Type: multipart/x-mixed-replace; boundary=frame
-Access-Control-Allow-Origin: *
-Connection: close
+pi@raspberrypi:~ $ vcgencmd get_camera
+supported=0 detected=0, libcamera interfaces=0
+pi@raspberrypi:~ $ libcamera-hello --list-cameras
+Available cameras
+-----------------
+0 : imx219 [3280x2464 10-bit] (/base/soc/i2c0mux/i2c@1/imx219@10)
+    Modes: 'SBGGR10_CSI2P' : 640x480 [30.00 fps - (65535, 65535)/65535x65535 crop]
+                             1640x1232 [30.00 fps - (65535, 65535)/65535x65535 crop]
+                             1920x1080 [30.00 fps - (65535, 65535)/65535x65535 crop]
+                             3280x2464 [30.00 fps - (65535, 65535)/65535x65535 crop]
+           'SBGGR8' : 640x480 [30.00 fps - (65535, 65535)/65535x65535 crop]
+                      1640x1232 [30.00 fps - (65535, 65535)/65535x65535 crop]
+                      1920x1080 [30.00 fps - (65535, 65535)/65535x65535 crop]
+                      3280x2464 [30.00 fps - (65535, 65535)/65535x65535 crop]
 
