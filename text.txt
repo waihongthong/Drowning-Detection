@@ -16,45 +16,25 @@ pip install ultralytics ncnn
 # Now convert your model
 yolo export model=best.pt format=ncnn
 
-yolo export model=best2.pt format=ncnn
 
-(env) pi@raspberrypi:~/Desktop/drowning $ pip install picamera2
+(env) pi@raspberrypi:~ $ pip install picamera2
 Looking in indexes: https://pypi.org/simple, https://www.piwheels.org/simple
-Collecting picamera2
-  Downloading picamera2-0.3.27-py3-none-any.whl.metadata (6.4 kB)
-Collecting PiDNG (from picamera2)
-  Downloading pidng-4.0.9.tar.gz (21 kB)
-  Installing build dependencies ... done
-  Getting requirements to build wheel ... done
-  Preparing metadata (pyproject.toml) ... done
-Collecting av (from picamera2)
-  Downloading av-14.4.0-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl.metadata (4.6 kB)
-Collecting jsonschema (from picamera2)
-  Downloading jsonschema-4.24.0-py3-none-any.whl.metadata (7.8 kB)
-Collecting libarchive-c (from picamera2)
-  Downloading libarchive_c-5.3-py3-none-any.whl.metadata (5.8 kB)
-Requirement already satisfied: numpy in /home/pi/env/lib/python3.11/site-packages (from picamera2) (2.1.2)
-Collecting piexif (from picamera2)
-  Downloading https://www.piwheels.org/simple/piexif/piexif-1.1.3-py2.py3-none-any.whl (20 kB)
-Requirement already satisfied: pillow in /home/pi/env/lib/python3.11/site-packages (from picamera2) (11.0.0)
-Collecting python-prctl (from picamera2)
-  Downloading python-prctl-1.8.1.tar.gz (28 kB)
-  Installing build dependencies ... done
-  Getting requirements to build wheel ... error
-  error: subprocess-exited-with-error
-  
-  × Getting requirements to build wheel did not run successfully.
-  │ exit code: 1
-  ╰─> [1 lines of output]
-      You need to install libcap development headers to build this module
-      [end of output]
-  
-  note: This error originates from a subprocess, and is likely not a problem with pip.
-error: subprocess-exited-with-error
-
-× Getting requirements to build wheel did not run successfully.
-│ exit code: 1
-╰─> See above for output.
-
-note: This error originates from a subprocess, and is likely not a problem with pip.
-
+Requirement already satisfied: picamera2 in ./env/lib/python3.11/site-packages (0.3.27)
+Requirement already satisfied: PiDNG in ./env/lib/python3.11/site-packages (from picamera2) (4.0.9)
+Requirement already satisfied: av in ./env/lib/python3.11/site-packages (from picamera2) (14.4.0)
+Requirement already satisfied: jsonschema in ./env/lib/python3.11/site-packages (from picamera2) (4.24.0)
+Requirement already satisfied: libarchive-c in ./env/lib/python3.11/site-packages (from picamera2) (5.3)
+Requirement already satisfied: numpy in ./env/lib/python3.11/site-packages (from picamera2) (2.1.2)
+Requirement already satisfied: piexif in ./env/lib/python3.11/site-packages (from picamera2) (1.1.3)
+Requirement already satisfied: pillow in ./env/lib/python3.11/site-packages (from picamera2) (11.0.0)
+Requirement already satisfied: python-prctl in ./env/lib/python3.11/site-packages (from picamera2) (1.8.1)
+Requirement already satisfied: simplejpeg in ./env/lib/python3.11/site-packages (from picamera2) (1.8.2)
+Requirement already satisfied: tqdm in ./env/lib/python3.11/site-packages (from picamera2) (4.67.1)
+Requirement already satisfied: v4l2-python3 in ./env/lib/python3.11/site-packages (from picamera2) (0.3.5)
+Requirement already satisfied: attrs>=22.2.0 in ./env/lib/python3.11/site-packages (from jsonschema->picamera2) (25.3.0)
+Requirement already satisfied: jsonschema-specifications>=2023.03.6 in ./env/lib/python3.11/site-packages (from jsonschema->picamera2) (2025.4.1)
+Requirement already satisfied: referencing>=0.28.4 in ./env/lib/python3.11/site-packages (from jsonschema->picamera2) (0.36.2)
+Requirement already satisfied: rpds-py>=0.7.1 in ./env/lib/python3.11/site-packages (from jsonschema->picamera2) (0.25.1)
+Requirement already satisfied: typing-extensions>=4.4.0 in ./env/lib/python3.11/site-packages (from referencing>=0.28.4->jsonschema->picamera2) (4.13.0)
+WARNING: Error parsing dependencies of send2trash: Expected matching RIGHT_PARENTHESIS for LEFT_PARENTHESIS, after version specifier
+    sys-platform (=="darwin") ; extra == 'objc'
