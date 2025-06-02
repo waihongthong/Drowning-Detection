@@ -313,140 +313,151 @@ def generate_frames():
     
     frame_count = 0
     last_frame_time = time.time()
+    last_fps_time = time.time()
     
     while True:
         try:
-            t_start = time.perf_counter()
+            frame_start_time = time.perf_counter()
             frame = None
             
-            # Try to get frame from camera
-            if camera_active:
+            # Get frame from camera with retry logic
+            max_retries = 3
+            for retry in range(max_retries):
                 try:
-                    with camera_lock:
-                        if camera is not None:
+                    if camera_active and camera is not None:
+                        with camera_lock:
                             frame = camera.capture_array()
                             
-                            # Check if frame is valid
-                            if frame is None or frame.size == 0:
-                                print("⚠️ Empty frame received from camera")
-                                frame = generate_test_frame()
+                        # Validate frame
+                        if frame is not None and frame.size > 0:
+                            break
                         else:
-                            print("⚠️ Camera is None")
-                            frame = generate_test_frame()
-                            
+                            print(f"⚠️ Empty frame on retry {retry + 1}")
+                            time.sleep(0.1)
+                    else:
+                        frame = generate_test_frame()
+                        break
+                        
                 except Exception as e:
-                    print(f"⚠️ Error capturing frame: {e}")
-                    frame = generate_test_frame()
-            else:
-                # Camera not active, use test frame
+                    print(f"⚠️ Frame capture error (retry {retry + 1}): {e}")
+                    if retry < max_retries - 1:
+                        time.sleep(0.2)
+                    else:
+                        frame = generate_test_frame()
+            
+            # Ensure we have a valid frame
+            if frame is None or frame.size == 0:
                 frame = generate_test_frame()
             
-            # Ensure we have a frame
-            if frame is None:
-                print("⚠️ No frame available, using test frame")
-                frame = generate_test_frame()
-            
-            # Convert frame format if necessary
+            # Convert frame format properly
+            original_shape = frame.shape
             try:
                 if len(frame.shape) == 3:
                     if frame.shape[2] == 4:  # RGBA
                         frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2BGR)
-                    elif frame.shape[2] == 3 and frame.dtype == np.uint8:
-                        # Check if it's RGB or BGR
-                        if camera_active and camera is not None:
-                            # Picamera2 usually gives RGB, convert to BGR for OpenCV
+                    elif frame.shape[2] == 3:
+                        # Picamera2 gives RGB, convert to BGR for OpenCV
+                        if camera_active:
                             frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
                 elif len(frame.shape) == 2:  # Grayscale
                     frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+                    
+                # Resize frame to match expected dimensions
+                if frame.shape[:2] != (CAMERA_HEIGHT, CAMERA_WIDTH):
+                    frame = cv2.resize(frame, (CAMERA_WIDTH, CAMERA_HEIGHT))
+                    
             except Exception as e:
-                print(f"⚠️ Error converting frame format: {e}")
+                print(f"⚠️ Frame conversion error: {e}")
                 frame = generate_test_frame()
             
-            # Process detection if active and model is loaded
+            # Process detection ONLY if active and model loaded
             drowning_count = 0
             total_objects = 0
             drowning_detected = False
             
             if detection_active and model is not None:
-                frame, drowning_count, total_objects, drowning_detected = process_detection(frame)
-                
-                # Handle drowning detection
-                with status_lock:
-                    if drowning_detected and not detection_status['alarm_active']:
-                        detection_status['drowning_detected'] = True
-                        detection_status['last_detection_time'] = time.time()
-                        detection_status['consecutive_detections'] = consecutive_drowning
-                        detection_status['confidence'] = sum(drowning_confidences) / len(drowning_confidences) if drowning_confidences else 0
-                        
-                        # Save detection image
-                        timestamp = time.strftime("%Y%m%d-%H%M%S")
-                        filename = f'drowning_detected_{timestamp}.png'
-                        cv2.imwrite(filename, frame)
-                        print(f"📸 Drowning detection captured and saved as '{filename}'")
-                        
-                        # Trigger alarm
-                        threading.Thread(target=activate_alarm, args=(10,), daemon=True).start()
-                    
-                    elif not drowning_detected:
-                        detection_status['drowning_detected'] = False
-                    
-                    detection_status['total_objects'] = total_objects
-                    detection_status['consecutive_detections'] = consecutive_drowning
-                    if drowning_confidences:
-                        detection_status['confidence'] = sum(drowning_confidences) / len(drowning_confidences)
+                try:
+                    frame, drowning_count, total_objects, drowning_detected = process_detection(frame)
+                except Exception as e:
+                    print(f"Detection error: {e}")
             
-            # Calculate FPS
-            t_stop = time.perf_counter()
-            frame_time = t_stop - t_start
-            frame_rate_calc = 1.0 / frame_time if frame_time > 0 else 0
-            
-            if len(frame_rate_buffer) >= fps_avg_len:
-                frame_rate_buffer.pop(0)
-            frame_rate_buffer.append(frame_rate_calc)
-            avg_fps = np.mean(frame_rate_buffer)
-            
-            # Add status overlay
+            # Update detection status in thread-safe manner
+            current_time = time.time()
             with status_lock:
-                detection_status['fps'] = avg_fps
+                detection_status['total_objects'] = total_objects
+                detection_status['consecutive_detections'] = consecutive_drowning
                 detection_status['is_detecting'] = detection_active
                 
-                # Draw status information
-                cv2.putText(frame, f'FPS: {avg_fps:.1f}', 
-                           (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-                cv2.putText(frame, f'Objects: {total_objects}', 
-                           (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-                cv2.putText(frame, f'Frame: {frame_count}', 
-                           (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-                
-                if detection_active:
-                    cv2.putText(frame, f'Drowning: {drowning_count}', 
-                               (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-                    cv2.putText(frame, f'Consecutive: {consecutive_drowning}/{detection_config["consecutive_threshold"]}', 
-                               (10, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-                
-                if detection_status['drowning_detected']:
-                    # Draw drowning alert
-                    alert_text = "!!! DROWNING DETECTED !!!"
-                    cv2.putText(frame, alert_text, (50, 200), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 5)
-                    cv2.putText(frame, alert_text, (50, 200), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                
-                if detection_status['alarm_active']:
-                    cv2.putText(frame, "ALARM ACTIVE", (CAMERA_WIDTH-200, 30), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-                
-                # Add camera status
-                if not camera_active:
-                    cv2.putText(frame, "CAMERA: TEST MODE", (10, CAMERA_HEIGHT-30), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                if drowning_confidences:
+                    detection_status['confidence'] = sum(drowning_confidences) / len(drowning_confidences)
                 else:
-                    cv2.putText(frame, "CAMERA: LIVE", (10, CAMERA_HEIGHT-30), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                    detection_status['confidence'] = 0.0
+                
+                # Handle drowning detection
+                if drowning_detected and not detection_status['alarm_active']:
+                    detection_status['drowning_detected'] = True
+                    detection_status['last_detection_time'] = current_time
+                    
+                    # Save detection image
+                    timestamp = time.strftime("%Y%m%d-%H%M%S")
+                    filename = f'drowning_detected_{timestamp}.png'
+                    cv2.imwrite(filename, frame)
+                    print(f"📸 Drowning saved: {filename}")
+                    
+                    # Trigger alarm
+                    threading.Thread(target=activate_alarm, args=(10,), daemon=True).start()
+                elif not drowning_detected:
+                    detection_status['drowning_detected'] = False
             
-            # Encode frame as JPEG with better quality settings
+            # Calculate accurate FPS
+            frame_end_time = time.perf_counter()
+            frame_duration = frame_end_time - frame_start_time
+            instantaneous_fps = 1.0 / frame_duration if frame_duration > 0 else 0
+            
+            # Update FPS buffer
+            if len(frame_rate_buffer) >= fps_avg_len:
+                frame_rate_buffer.pop(0)
+            frame_rate_buffer.append(instantaneous_fps)
+            avg_fps = np.mean(frame_rate_buffer) if frame_rate_buffer else 0
+            
+            # Update FPS in status every second
+            if current_time - last_fps_time >= 1.0:
+                with status_lock:
+                    detection_status['fps'] = round(avg_fps, 1)
+                last_fps_time = current_time
+            
+            # Draw overlay information
+            overlay_color = (0, 255, 255)  # Yellow
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = 0.6
+            thickness = 2
+            
+            # Status overlay
+            cv2.putText(frame, f'FPS: {avg_fps:.1f}', (10, 30), font, font_scale, overlay_color, thickness)
+            cv2.putText(frame, f'Objects: {total_objects}', (10, 60), font, font_scale, overlay_color, thickness)
+            cv2.putText(frame, f'Frame: {frame_count}', (10, 90), font, font_scale, overlay_color, thickness)
+            
+            if detection_active:
+                cv2.putText(frame, f'Drowning: {drowning_count}', (10, 120), font, font_scale, overlay_color, thickness)
+                cv2.putText(frame, f'Consecutive: {consecutive_drowning}/{detection_config["consecutive_threshold"]}', 
+                           (10, 150), font, font_scale, overlay_color, thickness)
+            
+            # Drowning alert overlay
+            if detection_status.get('drowning_detected', False):
+                alert_text = "!!! DROWNING DETECTED !!!"
+                cv2.putText(frame, alert_text, (50, 200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 5)
+                cv2.putText(frame, alert_text, (50, 200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            
+            # Camera status
+            status_y = CAMERA_HEIGHT - 30
+            if camera_active:
+                cv2.putText(frame, "CAMERA: LIVE", (10, status_y), font, font_scale, (0, 255, 0), thickness)
+            else:
+                cv2.putText(frame, "CAMERA: TEST MODE", (10, status_y), font, font_scale, overlay_color, thickness)
+            
+            # Encode frame with consistent quality
             encode_params = [
-                cv2.IMWRITE_JPEG_QUALITY, 80,
+                cv2.IMWRITE_JPEG_QUALITY, 85,
                 cv2.IMWRITE_JPEG_PROGRESSIVE, 1,
                 cv2.IMWRITE_JPEG_OPTIMIZE, 1
             ]
@@ -458,27 +469,32 @@ def generate_frames():
                 
             frame_bytes = buffer.tobytes()
             
-            # Debug info every 30 frames
+            # Debug output every 30 frames
             frame_count += 1
             if frame_count % 30 == 0:
-                current_time = time.time()
                 actual_fps = 30 / (current_time - last_frame_time) if frame_count > 30 else 0
-                print(f"📊 Frame {frame_count}: {len(frame_bytes)} bytes, FPS: {actual_fps:.1f}")
+                print(f"📊 Frame {frame_count}: {len(frame_bytes)} bytes, "
+                      f"Actual FPS: {actual_fps:.1f}, Avg FPS: {avg_fps:.1f}, "
+                      f"Objects: {total_objects}, Detection: {detection_active}")
                 last_frame_time = current_time
             
+            # Yield frame for streaming
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n'
                    b'Content-Length: ' + str(len(frame_bytes)).encode() + b'\r\n\r\n' + 
                    frame_bytes + b'\r\n')
             
-            # Control frame rate
-            time.sleep(max(0, 1.0/STREAM_FPS - frame_time))
+            # Control frame rate - aim for consistent timing
+            target_frame_time = 1.0 / STREAM_FPS
+            sleep_time = target_frame_time - frame_duration
+            if sleep_time > 0:
+                time.sleep(sleep_time)
             
         except Exception as e:
-            print(f"❌ Error generating frame: {e}")
+            print(f"❌ Frame generation error: {e}")
             # Generate error frame
             error_frame = generate_test_frame()
-            cv2.putText(error_frame, f'ERROR: {str(e)[:50]}', (10, CAMERA_HEIGHT//2 + 60), 
+            cv2.putText(error_frame, f'ERROR: {str(e)[:40]}', (10, CAMERA_HEIGHT//2 + 60), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
             
             ret, buffer = cv2.imencode('.jpg', error_frame)
@@ -489,7 +505,7 @@ def generate_frames():
                        b'Content-Length: ' + str(len(frame_bytes)).encode() + b'\r\n\r\n' + 
                        frame_bytes + b'\r\n')
             
-            time.sleep(1)  # Wait longer on error
+            time.sleep(0.5)  # Wait on error
 
 @app.route('/api/status')
 def get_status():
