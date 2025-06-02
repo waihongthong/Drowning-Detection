@@ -16,19 +16,40 @@ pip install ultralytics ncnn
 # Now convert your model
 yolo export model=best.pt format=ncnn
 
+(env) pi@raspberrypi:~/Desktop/drowning $ python drowning_gpt.py --model best2_ncnn_model
+🚀 Starting Integrated Drowning Detection Web Server...
+📱 Flutter app can connect to: http://10.207.200.139:5000
+📹 Video stream available at: http://10.207.200.139:5000/video_feed
+🔌 API endpoints available at: http://10.207.200.139:5000/api/
+🔄 Initializing camera...
+[0:30:33.506766366] [2160]  INFO Camera camera_manager.cpp:326 libcamera v0.5.0+59-d83ff0a4
+[0:30:33.543138930] [2169]  WARN RPiSdn sdn.cpp:40 Using legacy SDN tuning - please consider moving SDN inside rpi.denoise
+[0:30:33.545886326] [2169]  INFO RPI vc4.cpp:447 Registered camera /base/soc/i2c0mux/i2c@1/imx219@10 to Unicam device /dev/media0 and ISP device /dev/media2
+[0:30:33.546045635] [2169]  INFO RPI pipeline_base.cpp:1121 Using configuration file '/usr/share/libcamera/pipeline/rpi/vc4/rpi_apps.yaml'
+[0:30:33.557052162] [2160]  INFO Camera camera.cpp:1205 configuring streams: (0) 640x480-RGB888 (1) 640x480-SBGGR10_CSI2P
+[0:30:33.558814002] [2169]  INFO RPI vc4.cpp:622 Sensor: /base/soc/i2c0mux/i2c@1/imx219@10 - Selected sensor format: 640x480-SBGGR10_1X10 - Selected unicam format: 640x480-pBAA
+🔄 Warming up camera...
+✅ Camera frame 1/10 captured successfully
+✅ Camera frame 2/10 captured successfully
+✅ Camera frame 3/10 captured successfully
+✅ Camera frame 4/10 captured successfully
+✅ Camera frame 5/10 captured successfully
+✅ Camera frame 6/10 captured successfully
+✅ Camera frame 7/10 captured successfully
+✅ Camera frame 8/10 captured successfully
+✅ Camera frame 9/10 captured successfully
+✅ Camera frame 10/10 captured successfully
+✅ Camera initialized successfully
+WARNING ⚠️ Unable to automatically guess model task, assuming 'task=detect'. Explicitly define task for your model, i.e. 'task=detect', 'segment', 'classify','pose' or 'obb'.
+Loading best2_ncnn_model for NCNN inference...
+✅ Loaded YOLO model from best2_ncnn_model
+📊 Detection classes: {0: 'drowning'}
+✅ Model loaded from best2_ncnn_model
+ * Serving Flask app 'drowning_gpt'
+ * Debug mode: off
+WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://10.207.200.139:5000
 
-pi@raspberrypi:~ $ vcgencmd get_camera
-supported=0 detected=0, libcamera interfaces=0
-pi@raspberrypi:~ $ libcamera-hello --list-cameras
-Available cameras
------------------
-0 : imx219 [3280x2464 10-bit] (/base/soc/i2c0mux/i2c@1/imx219@10)
-    Modes: 'SBGGR10_CSI2P' : 640x480 [30.00 fps - (65535, 65535)/65535x65535 crop]
-                             1640x1232 [30.00 fps - (65535, 65535)/65535x65535 crop]
-                             1920x1080 [30.00 fps - (65535, 65535)/65535x65535 crop]
-                             3280x2464 [30.00 fps - (65535, 65535)/65535x65535 crop]
-           'SBGGR8' : 640x480 [30.00 fps - (65535, 65535)/65535x65535 crop]
-                      1640x1232 [30.00 fps - (65535, 65535)/65535x65535 crop]
-                      1920x1080 [30.00 fps - (65535, 65535)/65535x65535 crop]
-                      3280x2464 [30.00 fps - (65535, 65535)/65535x65535 crop]
 
