@@ -50,12 +50,12 @@ detection_status = {
 # Configuration
 CAMERA_WIDTH = 640
 CAMERA_HEIGHT = 480
-STREAM_FPS = 15
+STREAM_FPS = 30
 
 # Detection Configuration (can be modified via API)
 detection_config = {
-    'confidence_threshold': 0.6,
-    'consecutive_threshold': 5,
+    'confidence_threshold': 0.7,
+    'consecutive_threshold': 2,
     'min_area': 2000,
     'max_area': 200000,
     'min_avg_confidence': 0.7
@@ -260,6 +260,15 @@ def process_detection(frame):
                 if classname.lower() == "drowning":
                     drowning_count += 1
                     current_drowning_confidences.append(conf)
+                    
+                    # 🚨 IMMEDIATE GPIO RESPONSE FOR HIGH-CONFIDENCE DETECTIONS
+                    if conf > 0.8:
+                        # Immediate 1-second pulse for any high-confidence detection
+                        buzzer.on()
+                        led.on()
+                        threading.Timer(1.0, lambda: [buzzer.off(), led.off()]).start()
+                        print(f"⚡ IMMEDIATE ALERT: High confidence drowning detected ({conf:.2f})")
+                    
                     # Highlight drowning detection with a thicker box
                     cv2.rectangle(frame, (xmin,ymin), (xmax,ymax), (0,0,255), 4)
         
@@ -280,7 +289,7 @@ def process_detection(frame):
         if len(drowning_confidences) > 0:
             avg_confidence_threshold = sum(drowning_confidences) / len(drowning_confidences)
         
-        # Check if drowning should be triggered
+        # Check if drowning should be triggered (for sustained alarm)
         drowning_detected = (consecutive_drowning >= detection_config['consecutive_threshold'] and 
                            len(drowning_confidences) >= detection_config['consecutive_threshold'] and 
                            avg_confidence_threshold >= detection_config['min_avg_confidence'])
