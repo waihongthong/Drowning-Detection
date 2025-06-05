@@ -14,6 +14,28 @@ import numpy as np
 from picamera2 import Picamera2
 from ultralytics import YOLO
 from queue import Queue
+from pymongo import MongoClient
+import base64
+from datetime import datetime
+import os
+
+MONGODB_URI = "mongodb+srv://waihong0717:0717Waihong!@cluster0.zicfsjv.mongodb.net/fyp" 
+DB_NAME = "drowning_detection"
+COLLECTION_NAME = "detection_history"
+IMAGES_DIR = "detection_images"
+
+try:
+    mongo_client = MongoClient(MONGODB_URI)
+    db = mongo_client[DB_NAME]
+    collection = db[COLLECTION_NAME]
+    print("✅ MongoDB connection established")
+    MONGODB_AVAILABLE = True
+except Exception as e:
+    print(f"❌ MongoDB connection failed: {e}")
+    MONGODB_AVAILABLE = False
+
+# Create images directory if it doesn't exist
+os.makedirs(IMAGES_DIR, exist_ok=True)
 
 try:
     from picamera2.controls import Controls
@@ -316,6 +338,38 @@ def generate_test_frame():
     
     return frame
 
+def save_detection_to_database(image_path, detection_data):
+    """Save detection data and image to MongoDB"""
+    if not MONGODB_AVAILABLE:
+        return None
+    
+    try:
+        # Read and encode image as base64
+        with open(image_path, 'rb') as image_file:
+            image_data = base64.b64encode(image_file.read()).decode('utf-8')
+        
+        # Create detection record
+        detection_record = {
+            'timestamp': datetime.now().isoformat(),
+            'image_filename': os.path.basename(image_path),
+            'image_data': image_data,  # Base64 encoded image
+            'confidence': detection_data.get('confidence', 0.0),
+            'consecutive_detections': detection_data.get('consecutive_detections', 0),
+            'total_objects': detection_data.get('total_objects', 0),
+            'message': 'Drowning detected by AI system',
+            'camera_resolution': f'{CAMERA_WIDTH}x{CAMERA_HEIGHT}',
+            'detection_config': detection_config.copy()
+        }
+        
+        # Insert into MongoDB
+        result = collection.insert_one(detection_record)
+        print(f"✅ Detection saved to MongoDB with ID: {result.inserted_id}")
+        return str(result.inserted_id)
+        
+    except Exception as e:
+        print(f"❌ Error saving to MongoDB: {e}")
+        return None
+
 def generate_frames():
     """Generate video frames for streaming with detection overlay"""
     global camera, detection_status, frame_rate_buffer, consecutive_drowning, drowning_confidences, camera_active
@@ -405,18 +459,29 @@ def generate_frames():
                 # Handle drowning detection
                 if drowning_detected and not detection_status['alarm_active']:
                     detection_status['drowning_detected'] = True
-                    detection_status['last_detection_time'] = current_time
+                    detection_status['last_detection_time'] = time.time()
+                    detection_status['consecutive_detections'] = consecutive_drowning
+                    detection_status['confidence'] = sum(drowning_confidences) / len(drowning_confidences) if drowning_confidences else 0
                     
-                    # Save detection image
-                    timestamp = time.strftime("%Y%m%d-%H%M%S")
-                    filename = f'drowning_detected_{timestamp}.png'
-                    cv2.imwrite(filename, frame)
-                    print(f"📸 Drowning saved: {filename}")
+                    # Enhanced image saving with better naming
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    filename = f'drowning_detected_{timestamp}.jpg'
+                    image_path = os.path.join(IMAGES_DIR, filename)
+                    
+                    # Save image with higher quality
+                    cv2.imwrite(image_path, frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
+                    print(f"📸 Drowning detection captured and saved as '{image_path}'")
+                    
+                    # Save to database
+                    detection_data = {
+                        'confidence': detection_status['confidence'],
+                        'consecutive_detections': consecutive_drowning,
+                        'total_objects': total_objects
+                    }
+                    db_id = save_detection_to_database(image_path, detection_data)
                     
                     # Trigger alarm
                     threading.Thread(target=activate_alarm, args=(10,), daemon=True).start()
-                elif not drowning_detected:
-                    detection_status['drowning_detected'] = False
             
             # Calculate accurate FPS
             frame_end_time = time.perf_counter()
@@ -720,6 +785,84 @@ def health_check():
         'detection_active': detection_active,
         'camera_active': camera_active
     })
+
+@app.route('/api/history')
+def get_detection_history():
+    """Get detection history from database"""
+    try:
+        if not MONGODB_AVAILABLE:
+            return jsonify({'success': False, 'error': 'Database not available'}), 500
+        
+        # Get recent detections (last 30 days)
+        thirty_days_ago = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        detections = list(collection.find(
+            {'timestamp': {'$gte': thirty_days_ago.isoformat()}},
+            {'image_data': 0}  # Exclude base64 data from list
+        ).sort('timestamp', -1).limit(100))
+        
+        # Convert ObjectId to string for JSON serialization
+        for detection in detections:
+            detection['_id'] = str(detection['_id'])
+        
+        return jsonify({
+            'success': True,
+            'history': detections,
+            'count': len(detections)
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/detection/image/<filename>')
+def get_detection_image(filename):
+    """Serve detection images"""
+    try:
+        image_path = os.path.join(IMAGES_DIR, filename)
+        if os.path.exists(image_path):
+            return send_file(image_path, mimetype='image/jpeg')
+        else:
+            return jsonify({'error': 'Image not found'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/detection/image_data/<filename>')
+def get_detection_image_data(filename):
+    """Get detection image as base64 data from database"""
+    try:
+        if not MONGODB_AVAILABLE:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        detection = collection.find_one({'image_filename': filename})
+        if detection and 'image_data' in detection:
+            return jsonify({
+                'success': True,
+                'image_data': detection['image_data'],
+                'filename': filename
+            })
+        else:
+            return jsonify({'error': 'Image not found in database'}), 404
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/detection/delete/<detection_id>', methods=['DELETE'])
+def delete_detection(detection_id):
+    """Delete a detection record"""
+    try:
+        if not MONGODB_AVAILABLE:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        from bson.objectid import ObjectId
+        result = collection.delete_one({'_id': ObjectId(detection_id)})
+        
+        if result.deleted_count > 0:
+            return jsonify({'success': True, 'message': 'Detection deleted'})
+        else:
+            return jsonify({'error': 'Detection not found'}), 404
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     # Parse command line arguments for model loading
