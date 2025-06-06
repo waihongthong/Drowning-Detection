@@ -455,11 +455,12 @@ def generate_frames():
                     detection_status['confidence'] = sum(drowning_confidences) / len(drowning_confidences)
                 else:
                     detection_status['confidence'] = 0.0
-                
+
+                current_time_check = time.time()
                 # Handle drowning detection
                 if drowning_detected and not detection_status['alarm_active']:
                     detection_status['drowning_detected'] = True
-                    detection_status['last_detection_time'] = time.time()
+                    detection_status['last_detection_time'] = current_time_check
                     detection_status['consecutive_detections'] = consecutive_drowning
                     detection_status['confidence'] = sum(drowning_confidences) / len(drowning_confidences) if drowning_confidences else 0
                     
@@ -486,9 +487,8 @@ def generate_frames():
                 elif not drowning_detected:
                     detection_status['drowning_detected'] = False
 
-                current_time_check = time.time()
                 if (detection_status.get('last_detection_time') and 
-                    current_time_check - detection_status['last_detection_time'] > 30):  # 30 seconds timeout
+                    current_time_check - detection_status['last_detection_time'] > 15): 
                     detection_status['drowning_detected'] = False
                     print("⏰ Drowning alert cleared due to timeout")
             
