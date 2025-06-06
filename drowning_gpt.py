@@ -482,6 +482,15 @@ def generate_frames():
                     
                     # Trigger alarm
                     threading.Thread(target=activate_alarm, args=(10,), daemon=True).start()
+
+                elif not drowning_detected:
+                    detection_status['drowning_detected'] = False
+
+                current_time_check = time.time()
+                if (detection_status.get('last_detection_time') and 
+                    current_time_check - detection_status['last_detection_time'] > 30):  # 30 seconds timeout
+                    detection_status['drowning_detected'] = False
+                    print("⏰ Drowning alert cleared due to timeout")
             
             # Calculate accurate FPS
             frame_end_time = time.perf_counter()
@@ -617,6 +626,10 @@ def stop_detection():
         detection_status['drowning_detected'] = False
         detection_status['consecutive_detections'] = 0
         detection_status['confidence'] = 0.0
+        #detection_status['alarm_active'] = False  # Also reset alarm status
+
+    #buzzer.off()
+    #led.off()
     
     return jsonify({'success': True, 'message': 'Drowning detection stopped'})
 
