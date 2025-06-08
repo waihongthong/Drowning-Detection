@@ -7,7 +7,7 @@ import time
 import threading
 import argparse
 from datetime import datetime
-from flask import Flask, Response, jsonify, request, send_file
+from flask import Flask, Response, jsonify, request
 from flask_cors import CORS
 import cv2
 import numpy as np
@@ -455,12 +455,11 @@ def generate_frames():
                     detection_status['confidence'] = sum(drowning_confidences) / len(drowning_confidences)
                 else:
                     detection_status['confidence'] = 0.0
-
-                current_time_check = time.time()
+                
                 # Handle drowning detection
                 if drowning_detected and not detection_status['alarm_active']:
                     detection_status['drowning_detected'] = True
-                    detection_status['last_detection_time'] = current_time_check
+                    detection_status['last_detection_time'] = time.time()
                     detection_status['consecutive_detections'] = consecutive_drowning
                     detection_status['confidence'] = sum(drowning_confidences) / len(drowning_confidences) if drowning_confidences else 0
                     
@@ -483,14 +482,6 @@ def generate_frames():
                     
                     # Trigger alarm
                     threading.Thread(target=activate_alarm, args=(10,), daemon=True).start()
-
-                elif not drowning_detected:
-                    detection_status['drowning_detected'] = False
-
-                if (detection_status.get('last_detection_time') and 
-                    current_time_check - detection_status['last_detection_time'] > 15): 
-                    detection_status['drowning_detected'] = False
-                    print("⏰ Drowning alert cleared due to timeout")
             
             # Calculate accurate FPS
             frame_end_time = time.perf_counter()
@@ -626,10 +617,6 @@ def stop_detection():
         detection_status['drowning_detected'] = False
         detection_status['consecutive_detections'] = 0
         detection_status['confidence'] = 0.0
-        #detection_status['alarm_active'] = False  # Also reset alarm status
-
-    #buzzer.off()
-    #led.off()
     
     return jsonify({'success': True, 'message': 'Drowning detection stopped'})
 
@@ -829,57 +816,15 @@ def get_detection_history():
 
 @app.route('/api/detection/image/<filename>')
 def get_detection_image(filename):
-    """Serve detection images with better error handling"""
+    """Serve detection images"""
     try:
-        # Sanitize filename to prevent directory traversal
-        import os
-        filename = os.path.basename(filename)
         image_path = os.path.join(IMAGES_DIR, filename)
-        
-        print(f"📸 Requesting image: {filename}")
-        print(f"📁 Full path: {image_path}")
-        print(f"📂 Images directory: {IMAGES_DIR}")
-        print(f"✅ File exists: {os.path.exists(image_path)}")
-        
-        if not os.path.exists(image_path):
-            print(f"❌ Image not found: {image_path}")
-            # List available files for debugging
-            if os.path.exists(IMAGES_DIR):
-                available_files = os.listdir(IMAGES_DIR)
-                print(f"📋 Available files: {available_files}")
-            return jsonify({'error': 'Image not found', 'requested': filename}), 404
-        
-        # Check file size and permissions
-        file_size = os.path.getsize(image_path)
-        print(f"📊 File size: {file_size} bytes")
-        
-        if file_size == 0:
-            print(f"⚠️ Empty file: {image_path}")
-            return jsonify({'error': 'Empty image file'}), 404
-        
-        # Verify it's actually an image by trying to read it
-        try:
-            import cv2
-            test_image = cv2.imread(image_path)
-            if test_image is None:
-                print(f"❌ Invalid image format: {image_path}")
-                return jsonify({'error': 'Invalid image format'}), 400
-        except Exception as e:
-            print(f"⚠️ Image validation warning: {e}")
-        
-        print(f"✅ Serving image: {filename}")
-        return send_file(
-            image_path, 
-            mimetype='image/jpeg',
-            as_attachment=False,
-            download_name=filename
-        )
-        
+        if os.path.exists(image_path):
+            return send_file(image_path, mimetype='image/jpeg')
+        else:
+            return jsonify({'error': 'Image not found'}), 404
     except Exception as e:
-        print(f"❌ Error serving image {filename}: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': f'Server error: {str(e)}'}), 500
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/detection/image_data/<filename>')
 def get_detection_image_data(filename):
