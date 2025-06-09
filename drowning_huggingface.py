@@ -19,10 +19,23 @@ import base64
 from datetime import datetime
 import os
 
+
+HUGGINGFACE_API_URL = "https://api-inference.huggingface.co/models/YOUR_USERNAME/your-drowning-model"
+HUGGINGFACE_API_KEY = "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"  
+USE_CLOUD_INFERENCE = True  # Toggle between local and cloud inference
+CLOUD_INFERENCE_BATCH_SIZE = 1  # Process frames in batches
+FRAME_SKIP_RATIO = 3
 MONGODB_URI = "mongodb+srv://waihong0717:0717Waihong!@cluster0.zicfsjv.mongodb.net/fyp" 
 DB_NAME = "drowning_detection"
 COLLECTION_NAME = "detection_history"
 IMAGES_DIR = "detection_images"
+
+# Cloud inference queue
+cloud_inference_queue = queue.Queue(maxsize=10)
+cloud_results_queue = queue.Queue(maxsize=10)
+
+# Thread pool for async operations
+executor = ThreadPoolExecutor(max_workers=4)
 
 try:
     mongo_client = MongoClient(MONGODB_URI)
@@ -112,6 +125,86 @@ fps_avg_len = 10
 
 # Processing queue
 processed_frame_queue = Queue(maxsize=2)
+
+def upload_model_to_huggingface():
+    """
+    Instructions to upload your YOLO model to Hugging Face:
+    
+    1. Install required packages:
+       pip install huggingface_hub transformers
+    
+    2. Create a new model repository on Hugging Face:
+       - Go to https://huggingface.co/new
+       - Choose "Model" and create a new repository
+    
+    3. Upload your model files:
+    """
+    
+    upload_script = '''
+# Run this script to upload your model to Hugging Face
+
+from huggingface_hub import HfApi, Repository
+import os
+
+# Initialize Hugging Face API
+api = HfApi()
+
+# Your model details
+model_name = "your-username/drowning-detection-yolo"
+model_path = "/path/to/your/best.pt"  # Your YOLO model file
+
+# Create repository if it doesn't exist
+try:
+    api.create_repo(repo_id=model_name, repo_type="model")
+except:
+    pass  # Repository might already exist
+
+# Upload the model file
+api.upload_file(
+    path_or_fileobj=model_path,
+    path_in_repo="model.pt",
+    repo_id=model_name,
+    commit_message="Upload drowning detection YOLO model"
+)
+
+# Create a model card (README.md)
+model_card = """
+---
+tags:
+- yolo
+- object-detection
+- drowning-detection
+- computer-vision
+license: mit
+---
+
+# Drowning Detection YOLO Model
+
+This model detects drowning incidents in video streams.
+
+## Usage
+
+```python
+from ultralytics import YOLO
+model = YOLO('model.pt')
+results = model('path/to/image.jpg')
+```
+"""
+
+with open("README.md", "w") as f:
+    f.write(model_card)
+
+api.upload_file(
+    path_or_fileobj="README.md",
+    path_in_repo="README.md",
+    repo_id=model_name,
+    commit_message="Add model documentation"
+)
+
+print(f"Model uploaded to: https://huggingface.co/{model_name}")
+'''
+    
+    return upload_script
 
 def load_yolo_model(model_path):
     """Load the YOLO model for drowning detection"""
@@ -231,73 +324,144 @@ def cleanup_camera():
     except Exception as e:
         print(f"Error cleaning up camera: {e}")
 
+async def cloud_inference_worker():
+    """Worker function for cloud inference"""
+    async with aiohttp.ClientSession() as session:
+        while True:
+            try:
+                if not cloud_inference_queue.empty():
+                    frame_data = cloud_inference_queue.get_nowait()
+                    frame_id, frame_bytes = frame_data
+                    
+                    # Send frame to Hugging Face API
+                    result = await send_frame_to_huggingface(session, frame_bytes)
+                    
+                    # Put result in results queue
+                    if not cloud_results_queue.full():
+                        cloud_results_queue.put_nowait((frame_id, result))
+                    
+                await asyncio.sleep(0.01)  # Small delay to prevent busy waiting
+                
+            except Exception as e:
+                print(f"Cloud inference error: {e}")
+                await asyncio.sleep(1)
+
+async def send_frame_to_huggingface(session, frame_bytes):
+    """Send frame to Hugging Face Inference API"""
+    try:
+        headers = {
+            "Authorization": f"Bearer {HUGGINGFACE_API_KEY}",
+            "Content-Type": "application/octet-stream"
+        }
+        
+        async with session.post(
+            HUGGINGFACE_API_URL,
+            headers=headers,
+            data=frame_bytes,
+            timeout=aiohttp.ClientTimeout(total=5)  # 5 second timeout
+        ) as response:
+            
+            if response.status == 200:
+                result = await response.json()
+                return parse_huggingface_response(result)
+            else:
+                print(f"HF API error: {response.status}")
+                return None
+                
+    except Exception as e:
+        print(f"HF API request error: {e}")
+        return None
+
+def parse_huggingface_response(hf_result):
+    """Parse Hugging Face API response to match YOLO format"""
+    try:
+        detections = []
+        
+        # HF returns results in different format, adapt as needed
+        for detection in hf_result:
+            if detection.get('label', '').lower() == 'drowning':
+                bbox = detection.get('box', {})
+                confidence = detection.get('score', 0)
+                
+                # Convert to YOLO-like format
+                detection_obj = {
+                    'class': 'drowning',
+                    'confidence': confidence,
+                    'bbox': [
+                        bbox.get('xmin', 0),
+                        bbox.get('ymin', 0),
+                        bbox.get('xmax', 0),
+                        bbox.get('ymax', 0)
+                    ]
+                }
+                detections.append(detection_obj)
+        
+        return detections
+        
+    except Exception as e:
+        print(f"Error parsing HF response: {e}")
+        return []
+
 def process_detection(frame):
     """Process frame for drowning detection"""
-    global consecutive_drowning, drowning_confidences, model
-    
-    if model is None:
-        return frame, 0, 0, False
+    global consecutive_drowning, drowning_confidences
     
     try:
-        with model_lock:
-            results = model(frame, verbose=False, conf=detection_config['confidence_threshold'])
+        # Convert frame to bytes for cloud inference
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        pil_image = Image.fromarray(frame_rgb)
+        img_buffer = io.BytesIO()
+        pil_image.save(img_buffer, format='JPEG', quality=85)
+        frame_bytes = img_buffer.getvalue()
         
-        # Filter detections by size
-        filtered_detections = filter_detections(results[0].boxes)
+        # Send to cloud inference queue (non-blocking)
+        frame_id = int(time.time() * 1000)  # Unique frame ID
+        if not cloud_inference_queue.full():
+            cloud_inference_queue.put_nowait((frame_id, frame_bytes))
         
-        # Process detections
+        # Check for results from previous frames
+        detections = []
+        if not cloud_results_queue.empty():
+            try:
+                result_frame_id, cloud_detections = cloud_results_queue.get_nowait()
+                if cloud_detections:
+                    detections = cloud_detections
+            except:
+                pass
+        
+        # Process detections (similar to original logic)
         drowning_count = 0
-        total_objects = 0
+        total_objects = len(detections)
         current_drowning_confidences = []
         
-        # Set bounding box colors
-        bbox_colors = [(164,120,87), (68,148,228), (93,97,209), (178,182,133), (88,159,106), 
-                      (96,202,231), (159,124,168), (169,162,241), (98,118,150), (172,176,184)]
-        
-        # Process each detection
-        for i in range(len(filtered_detections)):
-            # Get bounding box coordinates
-            xyxy_tensor = filtered_detections[i].xyxy.cpu()
-            xyxy = xyxy_tensor.numpy().squeeze()
-            xmin, ymin, xmax, ymax = xyxy.astype(int)
-            
-            # Get class ID, name and confidence
-            classidx = int(filtered_detections[i].cls.item())
-            classname = model.names[classidx]
-            conf = filtered_detections[i].conf.item()
-            
-            # Draw box if confidence threshold is high enough
-            if conf > detection_config['confidence_threshold']:
-                total_objects += 1
-                color = bbox_colors[classidx % 10]
-                cv2.rectangle(frame, (xmin,ymin), (xmax,ymax), color, 2)
+        for detection in detections:
+            if detection['class'].lower() == 'drowning':
+                drowning_count += 1
+                confidence = detection['confidence']
+                current_drowning_confidences.append(confidence)
                 
-                label = f'{classname}: {int(conf*100)}%'
-                labelSize, baseLine = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-                label_ymin = max(ymin, labelSize[1] + 10)
-                cv2.rectangle(frame, (xmin, label_ymin-labelSize[1]-10), (xmin+labelSize[0], label_ymin+baseLine-10), color, cv2.FILLED)
-                cv2.putText(frame, label, (xmin, label_ymin-7), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+                # Draw bounding box
+                bbox = detection['bbox']
+                cv2.rectangle(frame, 
+                             (int(bbox[0]), int(bbox[1])), 
+                             (int(bbox[2]), int(bbox[3])), 
+                             (0, 0, 255), 2)
                 
-                # Check if detection is drowning
-                if classname.lower() == "drowning":
-                    drowning_count += 1
-                    current_drowning_confidences.append(conf)
-                    
-                    # 🚨 IMMEDIATE GPIO RESPONSE FOR HIGH-CONFIDENCE DETECTIONS
-                    if conf > 0.8:
-                        # Immediate 1-second pulse for any high-confidence detection
-                        buzzer.on()
-                        led.on()
-                        threading.Timer(1.0, lambda: [buzzer.off(), led.off()]).start()
-                        print(f"⚡ IMMEDIATE ALERT: High confidence drowning detected ({conf:.2f})")
-                    
-                    # Highlight drowning detection with a thicker box
-                    cv2.rectangle(frame, (xmin,ymin), (xmax,ymax), (0,0,255), 4)
+                # Add label
+                label = f'Drowning: {int(confidence*100)}%'
+                cv2.putText(frame, label, 
+                           (int(bbox[0]), int(bbox[1])-10), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+                
+                # Immediate alert for high confidence
+                if confidence > 0.8:
+                    buzzer.on()
+                    led.on()
+                    threading.Timer(1.0, lambda: [buzzer.off(), led.off()]).start()
         
-        # Update consecutive drowning counter with confidence checking
+        # Update consecutive drowning logic
         if drowning_count > 0:
             consecutive_drowning += 1
-            # Calculate average confidence of current detections
             avg_conf = sum(current_drowning_confidences) / len(current_drowning_confidences)
             drowning_confidences.append(avg_conf)
             if len(drowning_confidences) > detection_config['consecutive_threshold']:
@@ -306,12 +470,10 @@ def process_detection(frame):
             consecutive_drowning = 0
             drowning_confidences = []
         
-        # Calculate average confidence over threshold period
-        avg_confidence_threshold = 0
-        if len(drowning_confidences) > 0:
-            avg_confidence_threshold = sum(drowning_confidences) / len(drowning_confidences)
+        # Check drowning detection
+        avg_confidence_threshold = (sum(drowning_confidences) / len(drowning_confidences) 
+                                  if drowning_confidences else 0)
         
-        # Check if drowning should be triggered (for sustained alarm)
         drowning_detected = (consecutive_drowning >= detection_config['consecutive_threshold'] and 
                            len(drowning_confidences) >= detection_config['consecutive_threshold'] and 
                            avg_confidence_threshold >= detection_config['min_avg_confidence'])
@@ -319,7 +481,7 @@ def process_detection(frame):
         return frame, drowning_count, total_objects, drowning_detected
         
     except Exception as e:
-        print(f"Error processing detection: {e}")
+        print(f"Cloud detection error: {e}")
         return frame, 0, 0, False
 
 def generate_test_frame():
@@ -371,80 +533,70 @@ def save_detection_to_database(image_path, detection_data):
         return None
 
 def generate_frames():
-    """Generate video frames for streaming with detection overlay"""
+    def generate_frames_optimized():
+    """Optimized frame generation with cloud inference"""
     global camera, detection_status, frame_rate_buffer, consecutive_drowning, drowning_confidences, camera_active
     
     frame_count = 0
     last_frame_time = time.time()
     last_fps_time = time.time()
     
+    # Start cloud inference worker if using cloud
+    if USE_CLOUD_INFERENCE:
+        asyncio.create_task(cloud_inference_worker())
+    
     while True:
         try:
             frame_start_time = time.perf_counter()
             frame = None
             
-            # Get frame from camera with retry logic
+            # Get frame (same as original)
             max_retries = 3
             for retry in range(max_retries):
                 try:
                     if camera_active and camera is not None:
                         with camera_lock:
                             frame = camera.capture_array()
-                            
-                        # Validate frame
                         if frame is not None and frame.size > 0:
                             break
-                        else:
-                            print(f"⚠️ Empty frame on retry {retry + 1}")
-                            time.sleep(0.1)
                     else:
                         frame = generate_test_frame()
                         break
-                        
                 except Exception as e:
-                    print(f"⚠️ Frame capture error (retry {retry + 1}): {e}")
                     if retry < max_retries - 1:
-                        time.sleep(0.2)
+                        time.sleep(0.1)
                     else:
                         frame = generate_test_frame()
             
-            # Ensure we have a valid frame
             if frame is None or frame.size == 0:
                 frame = generate_test_frame()
             
-            # Convert frame format properly
-            original_shape = frame.shape
-            try:
-                if len(frame.shape) == 3:
-                    if frame.shape[2] == 4:  # RGBA
-                        frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2BGR)
-                    elif frame.shape[2] == 3:
-                        # Picamera2 gives RGB, convert to BGR for OpenCV
-                        if camera_active:
-                            frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-                elif len(frame.shape) == 2:  # Grayscale
-                    frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
-                    
-                # Resize frame to match expected dimensions
-                if frame.shape[:2] != (CAMERA_HEIGHT, CAMERA_WIDTH):
-                    frame = cv2.resize(frame, (CAMERA_WIDTH, CAMERA_HEIGHT))
-                    
-            except Exception as e:
-                print(f"⚠️ Frame conversion error: {e}")
-                frame = generate_test_frame()
+            # Frame format conversion (same as original)
+            if len(frame.shape) == 3:
+                if frame.shape[2] == 4:
+                    frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2BGR)
+                elif frame.shape[2] == 3 and camera_active:
+                    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
             
-            # Process detection ONLY if active and model loaded
+            if frame.shape[:2] != (CAMERA_HEIGHT, CAMERA_WIDTH):
+                frame = cv2.resize(frame, (CAMERA_WIDTH, CAMERA_HEIGHT))
+            
+            # Process detection with optimizations
             drowning_count = 0
             total_objects = 0
             drowning_detected = False
             
             if detection_active and model is not None:
-                try:
+                # Decide whether to use cloud or local inference
+                if USE_CLOUD_INFERENCE:
+                    # Skip frames for cloud inference to reduce latency
+                    if frame_count % FRAME_SKIP_RATIO == 0:
+                        frame, drowning_count, total_objects, drowning_detected = process_detection(frame)
+                else:
+                    # Use local inference (original method)
                     frame, drowning_count, total_objects, drowning_detected = process_detection(frame)
-                except Exception as e:
-                    print(f"Detection error: {e}")
             
-            # Update detection status in thread-safe manner
+            # Update status and generate frame output (same as original)
             current_time = time.time()
             with status_lock:
                 detection_status['total_objects'] = total_objects
@@ -463,53 +615,44 @@ def generate_frames():
                     detection_status['consecutive_detections'] = consecutive_drowning
                     detection_status['confidence'] = sum(drowning_confidences) / len(drowning_confidences) if drowning_confidences else 0
                     
-                    # Enhanced image saving with better naming
+                    # Save image and trigger alarm
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     filename = f'drowning_detected_{timestamp}.jpg'
                     image_path = os.path.join(IMAGES_DIR, filename)
-                    
-                    # Save image with higher quality
                     cv2.imwrite(image_path, frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
-                    print(f"📸 Drowning detection captured and saved as '{image_path}'")
                     
-                    # Save to database
                     detection_data = {
                         'confidence': detection_status['confidence'],
                         'consecutive_detections': consecutive_drowning,
                         'total_objects': total_objects
                     }
-                    db_id = save_detection_to_database(image_path, detection_data)
-                    
-                    # Trigger alarm
+                    save_detection_to_database(image_path, detection_data)
                     threading.Thread(target=activate_alarm, args=(10,), daemon=True).start()
             
-            # Calculate accurate FPS
+            # Calculate FPS
             frame_end_time = time.perf_counter()
             frame_duration = frame_end_time - frame_start_time
             instantaneous_fps = 1.0 / frame_duration if frame_duration > 0 else 0
             
-            # Update FPS buffer
             if len(frame_rate_buffer) >= fps_avg_len:
                 frame_rate_buffer.pop(0)
             frame_rate_buffer.append(instantaneous_fps)
             avg_fps = np.mean(frame_rate_buffer) if frame_rate_buffer else 0
             
-            # Update FPS in status every second
             if current_time - last_fps_time >= 1.0:
                 with status_lock:
                     detection_status['fps'] = round(avg_fps, 1)
                 last_fps_time = current_time
             
             # Draw overlay information
-            overlay_color = (0, 255, 255)  # Yellow
+            overlay_color = (0, 255, 255) if not USE_CLOUD_INFERENCE else (255, 165, 0)  # Orange for cloud
             font = cv2.FONT_HERSHEY_SIMPLEX
             font_scale = 0.6
             thickness = 2
             
-            # Status overlay
             cv2.putText(frame, f'FPS: {avg_fps:.1f}', (10, 30), font, font_scale, overlay_color, thickness)
             cv2.putText(frame, f'Objects: {total_objects}', (10, 60), font, font_scale, overlay_color, thickness)
-            cv2.putText(frame, f'Frame: {frame_count}', (10, 90), font, font_scale, overlay_color, thickness)
+            cv2.putText(frame, f'Mode: {"Cloud" if USE_CLOUD_INFERENCE else "Local"}', (10, 90), font, font_scale, overlay_color, thickness)
             
             if detection_active:
                 cv2.putText(frame, f'Drowning: {drowning_count}', (10, 120), font, font_scale, overlay_color, thickness)
@@ -529,57 +672,34 @@ def generate_frames():
             else:
                 cv2.putText(frame, "CAMERA: TEST MODE", (10, status_y), font, font_scale, overlay_color, thickness)
             
-            # Encode frame with consistent quality
-            encode_params = [
-                cv2.IMWRITE_JPEG_QUALITY, 85,
-                cv2.IMWRITE_JPEG_PROGRESSIVE, 1,
-                cv2.IMWRITE_JPEG_OPTIMIZE, 1
-            ]
-            
+            # Encode and yield frame
+            encode_params = [cv2.IMWRITE_JPEG_QUALITY, 75]  # Reduced quality for faster encoding
             ret, buffer = cv2.imencode('.jpg', frame, encode_params)
-            if not ret:
-                print("⚠️ Failed to encode frame")
-                continue
-                
-            frame_bytes = buffer.tobytes()
             
-            # Debug output every 30 frames
-            frame_count += 1
-            if frame_count % 30 == 0:
-                actual_fps = 30 / (current_time - last_frame_time) if frame_count > 30 else 0
-                print(f"📊 Frame {frame_count}: {len(frame_bytes)} bytes, "
-                      f"Actual FPS: {actual_fps:.1f}, Avg FPS: {avg_fps:.1f}, "
-                      f"Objects: {total_objects}, Detection: {detection_active}")
-                last_frame_time = current_time
-            
-            # Yield frame for streaming
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n'
-                   b'Content-Length: ' + str(len(frame_bytes)).encode() + b'\r\n\r\n' + 
-                   frame_bytes + b'\r\n')
-            
-            # Control frame rate - aim for consistent timing
-            target_frame_time = 1.0 / STREAM_FPS
-            sleep_time = target_frame_time - frame_duration
-            if sleep_time > 0:
-                time.sleep(sleep_time)
-            
-        except Exception as e:
-            print(f"❌ Frame generation error: {e}")
-            # Generate error frame
-            error_frame = generate_test_frame()
-            cv2.putText(error_frame, f'ERROR: {str(e)[:40]}', (10, CAMERA_HEIGHT//2 + 60), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
-            
-            ret, buffer = cv2.imencode('.jpg', error_frame)
             if ret:
                 frame_bytes = buffer.tobytes()
+                frame_count += 1
+                
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n'
                        b'Content-Length: ' + str(len(frame_bytes)).encode() + b'\r\n\r\n' + 
                        frame_bytes + b'\r\n')
             
-            time.sleep(0.5)  # Wait on error
+            # Adaptive frame rate control
+            if USE_CLOUD_INFERENCE:
+                # Faster frame rate for cloud inference since processing is offloaded
+                target_fps = 15
+            else:
+                target_fps = STREAM_FPS
+            
+            target_frame_time = 1.0 / target_fps
+            sleep_time = target_frame_time - frame_duration
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+            
+        except Exception as e:
+            print(f"Frame generation error: {e}")
+            time.sleep(0.5)
 
 @app.route('/api/status')
 def get_status():
@@ -863,6 +983,37 @@ def delete_detection(detection_id):
             
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+        
+@app.route('/api/inference/mode', methods=['GET', 'POST'])
+def inference_mode():
+    """Get or set inference mode (local vs cloud)"""
+    global USE_CLOUD_INFERENCE
+    
+    if request.method == 'GET':
+        return jsonify({
+            'current_mode': 'cloud' if USE_CLOUD_INFERENCE else 'local',
+            'huggingface_configured': bool(HUGGINGFACE_API_KEY and HUGGINGFACE_API_URL)
+        })
+    
+    elif request.method == 'POST':
+        data = request.get_json()
+        mode = data.get('mode', 'local')
+        
+        if mode == 'cloud':
+            if not HUGGINGFACE_API_KEY or not HUGGINGFACE_API_URL:
+                return jsonify({
+                    'success': False, 
+                    'error': 'Hugging Face API not configured'
+                }), 400
+            USE_CLOUD_INFERENCE = True
+        else:
+            USE_CLOUD_INFERENCE = False
+        
+        return jsonify({
+            'success': True,
+            'message': f'Inference mode set to {mode}',
+            'current_mode': 'cloud' if USE_CLOUD_INFERENCE else 'local'
+        })
 
 if __name__ == '__main__':
     # Parse command line arguments for model loading
