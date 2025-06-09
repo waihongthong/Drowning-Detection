@@ -9,7 +9,7 @@ from PIL import Image
 import io
 
 # Load your model (upload your .pt file to the space)
-model = YOLO('best_ncnn_model.pt')  # or whatever your model name is
+model = YOLO('best2.pt')  # or whatever your model name is
 
 def detect_drowning(image_b64, confidence_threshold=0.7):
     """Process image and return detections"""
