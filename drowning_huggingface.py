@@ -19,7 +19,7 @@ import base64
 from datetime import datetime
 import os
 
-CLOUD_API_URL = "https://your-username-drowning-detection.hf.space/detect"  # Replace with your HF Space URL
+CLOUD_API_URL = "https://huggingface.co/spaces/twhhhh/DeepSave"  # Replace with your HF Space URL
 CLOUD_ENABLED = True
 PROCESS_EVERY_N_FRAMES = 3  # Process every 2nd frame in cloud
 # Cloud processing variables
