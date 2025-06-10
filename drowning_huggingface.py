@@ -21,9 +21,11 @@ from threading import Thread
 import os
 import requests
 
-CLOUD_API_URL = "https://twhhhh-deepsave.hf.space/detect"  # Replace with your HF Space URL
+CLOUD_API_URL = "https://twhhhh-deepsave.hf.space/predict"  # Changed from /detect to /predict
 CLOUD_ENABLED = True
-PROCESS_EVERY_N_FRAMES = 3  # Process every 2nd frame in cloud
+PROCESS_EVERY_N_FRAMES = 5  # Reduced frequency to avoid overloading
+CLOUD_TIMEOUT = 8  # Increased timeout for better reliability
+
 # Cloud processing variables
 cloud_processing = False
 last_cloud_result = None
