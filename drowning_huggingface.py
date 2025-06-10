@@ -17,9 +17,11 @@ from queue import Queue
 from pymongo import MongoClient
 import base64
 from datetime import datetime
+from threading import Thread
 import os
+import requests
 
-CLOUD_API_URL = "https://huggingface.co/spaces/twhhhh/DeepSave"  # Replace with your HF Space URL
+CLOUD_API_URL = "https://twhhhh-deepsave.hf.space/detect"  # Replace with your HF Space URL
 CLOUD_ENABLED = True
 PROCESS_EVERY_N_FRAMES = 3  # Process every 2nd frame in cloud
 # Cloud processing variables
@@ -141,7 +143,7 @@ def send_frame_to_cloud(frame, frame_id):
         # Convert to base64
         img_base64 = base64.b64encode(buffer).decode('utf-8')
         
-        # Send to cloud
+        # Send to cloud API - CORRECTED PAYLOAD FORMAT
         payload = {
             "image": img_base64,
             "confidence_threshold": detection_config['confidence_threshold']
@@ -150,7 +152,8 @@ def send_frame_to_cloud(frame, frame_id):
         response = requests.post(
             CLOUD_API_URL,
             json=payload,
-            timeout=3  # 3 second timeout
+            timeout=5,  # Increased timeout
+            headers={'Content-Type': 'application/json'}
         )
         
         if response.status_code == 200:
@@ -161,7 +164,7 @@ def send_frame_to_cloud(frame, frame_id):
             last_cloud_result = result
             print(f"✅ Cloud processed frame {frame_id}: {len(result.get('detections', []))} detections")
         else:
-            print(f"❌ Cloud API error: {response.status_code}")
+            print(f"❌ Cloud API error: {response.status_code} - {response.text}")
             
     except requests.exceptions.Timeout:
         print(f"⏰ Cloud request timeout for frame {frame_id}")
@@ -169,7 +172,7 @@ def send_frame_to_cloud(frame, frame_id):
         print(f"❌ Cloud request error: {e}")
     finally:
         cloud_processing = False
-
+        
 def apply_cloud_detections_to_frame(frame, cloud_result):
     """Apply cloud detection results to current frame"""
     if not cloud_result or not cloud_result.get('success', False):
@@ -855,17 +858,6 @@ def delete_detection(detection_id):
             
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-
-    @app.route('/api/cloud/toggle', methods=['POST'])
-    def toggle_cloud():
-        """Toggle cloud processing on/off"""
-        global CLOUD_ENABLED
-        CLOUD_ENABLED = not CLOUD_ENABLED
-        return jsonify({
-            'success': True, 
-            'cloud_enabled': CLOUD_ENABLED,
-            'message': f'Cloud processing {"enabled" if CLOUD_ENABLED else "disabled"}'
-        })
     
     @app.route('/api/cloud/status')
     def cloud_status():
@@ -877,6 +869,26 @@ def delete_detection(detection_id):
             'api_url': CLOUD_API_URL
         })
 
+@app.route('/api/cloud/toggle', methods=['POST'])
+    def toggle_cloud():
+        """Toggle cloud processing on/off"""
+        global CLOUD_ENABLED
+        CLOUD_ENABLED = not CLOUD_ENABLED
+        return jsonify({
+            'success': True, 
+            'cloud_enabled': CLOUD_ENABLED,
+            'message': f'Cloud processing {"enabled" if CLOUD_ENABLED else "disabled"}'
+        })
+
+@app.route('/api/cloud/status')
+def cloud_status():
+    """Get cloud processing status"""
+    return jsonify({
+        'cloud_enabled': CLOUD_ENABLED,
+        'cloud_processing': cloud_processing,
+        'last_result_time': last_cloud_result.get('timestamp') if last_cloud_result else None,
+        'api_url': CLOUD_API_URL
+    })
 
 if __name__ == '__main__':
     # Parse command line arguments for model loading
