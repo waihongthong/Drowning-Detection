@@ -248,6 +248,10 @@ def load_yolo_model(model_path):
             print(f"❌ Unsupported model format: {model_path}")
             print("💡 Supported formats: .pt (PyTorch)")
             return False
+    
+    except Exception as e:
+        print(f"❌ Error loading model: {e}")
+        return False
 
 def filter_detections(detections, min_area=None, max_area=None):
     """Filter detections based on size"""
