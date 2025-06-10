@@ -16,9 +16,9 @@ pip install ultralytics ncnn
 # Now convert your model
 yolo export model=best.pt format=ncnn
 
-(env) pi@raspberrypi:~/Desktop/drowning $ python drowning_huggingface.py --model best2.pt
-  File "/home/pi/Desktop/drowning/drowning_huggingface.py", line 252
-    def filter_detections(detections, min_area=None, max_area=None):
-SyntaxError: expected 'except' or 'finally' block
+File "/home/pi/Desktop/drowning/drowning_huggingface.py", line 891
+    def toggle_cloud():
+IndentationError: unexpected indent
+
 
 
