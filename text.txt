@@ -16,11 +16,23 @@ pip install ultralytics ncnn
 # Now convert your model
 yolo export model=best.pt format=ncnn
 
-📊 Cloud Frame 690: FPS: 3.9, Objects: 0
-❌ Cloud API error: 404 - {"detail":"Not Found"}
-10.207.200.119 - - [10/Jun/2025 08:27:37] "GET /api/status HTTP/1.1" 200 -
-10.207.200.119 - - [10/Jun/2025 08:27:38] "GET /api/status HTTP/1.1" 200 -
-❌ Cloud API error: 404 - {"detail":"Not Found"}
+🔄 Trying endpoint: https://twhhhh-deepsave.hf.space/detect
+10.207.200.119 - - [10/Jun/2025 09:15:12] "GET /api/status HTTP/1.1" 200 -
+10.207.200.119 - - [10/Jun/2025 09:15:13] "GET /api/status HTTP/1.1" 200 -
+10.207.200.119 - - [10/Jun/2025 09:15:13] "GET /api/status HTTP/1.1" 200 -
+📊 Frame 570: FPS: 11.7, Objects: 0, Drowning: False
+10.207.200.119 - - [10/Jun/2025 09:15:13] "GET /api/status HTTP/1.1" 200 -
+❌ Endpoint https://twhhhh-deepsave.hf.space/detect returned: 404
+🔄 Trying endpoint: https://twhhhh-deepsave.hf.space/api/detect
+10.207.200.119 - - [10/Jun/2025 09:15:14] "GET /api/status HTTP/1.1" 200 -
+📊 Frame 600: FPS: 15.3, Objects: 0, Drowning: False
+10.207.200.119 - - [10/Jun/2025 09:15:15] "GET /api/status HTTP/1.1" 200 -
+^C❌ Endpoint https://twhhhh-deepsave.hf.space/api/detect returned: 404
+❌ All cloud endpoints failed for frame 540
+✅ Camera cleaned up
+❌ Frame generation error: 'NoneType' object has no attribute 'capture_array'
+🔄 Trying endpoint: https://twhhhh-deepsave.hf.space/predict
+
 
 
 
