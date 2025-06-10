@@ -132,80 +132,92 @@ def send_frame_to_cloud(frame, frame_id):
     try:
         cloud_processing = True
         
-        # Resize frame to reduce bandwidth
-        small_frame = cv2.resize(frame, (416, 416))
+        # Fix 1: Consistent resize to match cloud API expectations
+        # Test with your Hugging Face space to confirm the expected input size
+        small_frame = cv2.resize(frame, (320, 320))  # Changed from (416, 416)
         
-        # Encode as JPEG
-        encode_params = [cv2.IMWRITE_JPEG_QUALITY, 75]
+        # Encode as JPEG with higher quality for better detection
+        encode_params = [cv2.IMWRITE_JPEG_QUALITY, 85]  # Increased from 75
         ret, buffer = cv2.imencode('.jpg', small_frame, encode_params)
         
         if not ret:
+            print("❌ Failed to encode frame")
             return
         
         # Convert to base64
         img_base64 = base64.b64encode(buffer).decode('utf-8')
         
-        # Try multiple API endpoints/formats
-        endpoints_to_try = [
-            {
-                'url': CLOUD_API_URL,
-                'payload': {"image": img_base64, "confidence_threshold": detection_config['confidence_threshold']},
-                'content_type': 'application/json'
+        # Fix 2: Simplified endpoint testing - focus on your working endpoint first
+        primary_endpoint = {
+            'url': CLOUD_API_URL,  # https://twhhhh-deepsave.hf.space/predict
+            'payload': {
+                "image": img_base64,
+                "confidence_threshold": detection_config['confidence_threshold']
             },
-            {
-                'url': CLOUD_API_URL.replace('/predict', '/detect'),
-                'payload': {"image": img_base64, "threshold": detection_config['confidence_threshold']},
-                'content_type': 'application/json'
-            },
-            {
-                'url': CLOUD_API_URL.replace('/predict', '/api/detect'),
-                'payload': {"image": img_base64},
-                'content_type': 'application/json'
-            }
-        ]
+            'content_type': 'application/json'
+        }
         
-        success = False
-        for endpoint in endpoints_to_try:
-            try:
-                print(f"🔄 Trying endpoint: {endpoint['url']}")
-                
-                response = requests.post(
-                    endpoint['url'],
-                    json=endpoint['payload'],
-                    timeout=CLOUD_TIMEOUT,
-                    headers={'Content-Type': endpoint['content_type']}
-                )
-                
-                if response.status_code == 200:
+        # Try primary endpoint first
+        try:
+            print(f"🔄 Sending to: {primary_endpoint['url']}")
+            
+            response = requests.post(
+                primary_endpoint['url'],
+                json=primary_endpoint['payload'],
+                timeout=CLOUD_TIMEOUT,
+                headers={
+                    'Content-Type': 'application/json',
+                    'User-Agent': 'RaspberryPi-DrowningDetector/1.0'
+                }
+            )
+            
+            print(f"📊 Response status: {response.status_code}")
+            print(f"📊 Response headers: {dict(response.headers)}")
+            
+            if response.status_code == 200:
+                try:
                     result = response.json()
+                    print(f"📊 Raw response: {result}")
+                    
+                    # Fix 3: Enhanced result processing
                     result['frame_id'] = frame_id
                     result['timestamp'] = time.time()
                     result['original_frame_shape'] = frame.shape
-                    result['endpoint_used'] = endpoint['url']
+                    result['endpoint_used'] = primary_endpoint['url']
+                    result['processed_frame_size'] = small_frame.shape
+                    
                     last_cloud_result = result
                     
-                    detections_count = len(result.get('detections', []))
-                    print(f"✅ Cloud processed frame {frame_id}: {detections_count} detections")
-                    success = True
-                    break
+                    # Better detection counting
+                    detections = result.get('detections', result.get('predictions', []))
+                    print(f"✅ Cloud processed frame {frame_id}: {len(detections)} detections")
                     
-                else:
-                    print(f"❌ Endpoint {endpoint['url']} returned: {response.status_code}")
+                    return True
                     
-            except requests.exceptions.RequestException as e:
-                print(f"❌ Request error for {endpoint['url']}: {e}")
-                continue
+                except json.JSONDecodeError as e:
+                    print(f"❌ JSON decode error: {e}")
+                    print(f"❌ Response text: {response.text[:500]}")
+                    
+            else:
+                print(f"❌ HTTP Error {response.status_code}: {response.text[:200]}")
+                
+        except requests.exceptions.Timeout:
+            print(f"⏰ Request timeout after {CLOUD_TIMEOUT} seconds")
+        except requests.exceptions.ConnectionError:
+            print(f"❌ Connection error to {primary_endpoint['url']}")
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Request error: {e}")
         
-        if not success:
-            print(f"❌ All cloud endpoints failed for frame {frame_id}")
-            # Fallback: create empty result to prevent processing issues
-            last_cloud_result = {
-                'success': False,
-                'detections': [],
-                'frame_id': frame_id,
-                'timestamp': time.time(),
-                'error': 'All endpoints failed'
-            }
+        # If primary endpoint fails, create fallback result
+        print(f"❌ Cloud endpoint failed for frame {frame_id}")
+        last_cloud_result = {
+            'success': False,
+            'detections': [],
+            'frame_id': frame_id,
+            'timestamp': time.time(),
+            'error': 'Cloud API request failed'
+        }
+        return False
             
     except Exception as e:
         print(f"❌ Critical cloud request error: {e}")
@@ -216,90 +228,128 @@ def send_frame_to_cloud(frame, frame_id):
             'timestamp': time.time(),
             'error': str(e)
         }
+        return False
     finally:
         cloud_processing = False
         
 def apply_cloud_detections_to_frame(frame, cloud_result):
     """Apply cloud detection results to current frame"""
-    if not cloud_result or not cloud_result.get('success', False):
+    if not cloud_result:
+        cv2.putText(frame, 'Cloud: No result', (10, 90), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
         return frame, 0, 0, False
     
+    # Fix 4: Better error handling and result parsing
+    if not cloud_result.get('success', True):
+        error_msg = cloud_result.get('error', 'Unknown error')
+        cv2.putText(frame, f'Cloud Error: {error_msg[:20]}', (10, 90), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1)
+        return frame, 0, 0, False
+    
+    # Try different response formats from Hugging Face
     detections = []
-    if cloud_result.get('success', True):  # Default to True if not specified
-        detections = cloud_result.get('detections', [])
+    if 'detections' in cloud_result:
+        detections = cloud_result['detections']
     elif 'predictions' in cloud_result:
         detections = cloud_result['predictions']
     elif 'results' in cloud_result:
         detections = cloud_result['results']
+    elif isinstance(cloud_result, list):
+        detections = cloud_result
     
     if not detections:
-        # Add status overlay for no detections
         cv2.putText(frame, 'Cloud: No detections', (10, 90), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
         return frame, 0, 0, False
     
     drowning_count = 0
     total_objects = len(detections)
     
-    # Get scaling factors (adjust based on your cloud processing size)
-    cloud_size = 320  # Updated to match new resize
-    scale_x = frame.shape[1] / cloud_size
-    scale_y = frame.shape[0] / cloud_size
+    # Fix 5: Improved coordinate scaling
+    processed_size = cloud_result.get('processed_frame_size', [320, 320])
+    if len(processed_size) >= 2:
+        scale_x = frame.shape[1] / processed_size[1]
+        scale_y = frame.shape[0] / processed_size[0]
+    else:
+        scale_x = frame.shape[1] / 320
+        scale_y = frame.shape[0] / 320
     
-    for detection in detections:
+    print(f"📊 Processing {len(detections)} detections with scale ({scale_x:.2f}, {scale_y:.2f})")
+    
+    for i, detection in enumerate(detections):
         try:
             # Handle different coordinate formats
-            if 'bbox' in detection:
-                # Format: {'bbox': [x1, y1, x2, y2]}
-                x1, y1, x2, y2 = detection['bbox']
+            coords = None
+            confidence = 0.0
+            class_name = 'unknown'
+            
+            # Parse coordinates
+            if 'bbox' in detection and isinstance(detection['bbox'], list):
+                coords = detection['bbox']
+            elif 'box' in detection:
+                coords = detection['box']
             elif all(k in detection for k in ['x1', 'y1', 'x2', 'y2']):
-                # Format: {'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2}
-                x1, y1, x2, y2 = detection['x1'], detection['y1'], detection['x2'], detection['y2']
+                coords = [detection['x1'], detection['y1'], detection['x2'], detection['y2']]
             elif all(k in detection for k in ['x', 'y', 'w', 'h']):
-                # Format: {'x': center_x, 'y': center_y, 'w': width, 'h': height}
                 x, y, w, h = detection['x'], detection['y'], detection['w'], detection['h']
-                x1, y1, x2, y2 = x - w/2, y - h/2, x + w/2, y + h/2
-            else:
-                print(f"⚠️ Unknown detection format: {detection}")
+                coords = [x - w/2, y - h/2, x + w/2, y + h/2]
+            
+            if not coords or len(coords) < 4:
+                print(f"⚠️ Invalid coordinates in detection {i}: {detection}")
                 continue
             
-            # Scale coordinates back to current frame size
+            # Parse confidence
+            confidence = detection.get('confidence', detection.get('score', 0.0))
+            
+            # Parse class
+            class_name = detection.get('class', detection.get('label', 'object'))
+            
+            # Scale coordinates
+            x1, y1, x2, y2 = coords
             x1, y1, x2, y2 = int(x1 * scale_x), int(y1 * scale_y), int(x2 * scale_x), int(y2 * scale_y)
             
-            # Get confidence and class
-            confidence = detection.get('confidence', detection.get('score', 0.5))
-            class_name = detection.get('class', detection.get('label', 'unknown'))
+            # Ensure coordinates are within frame bounds
+            x1 = max(0, min(x1, frame.shape[1]))
+            y1 = max(0, min(y1, frame.shape[0]))
+            x2 = max(0, min(x2, frame.shape[1]))
+            y2 = max(0, min(y2, frame.shape[0]))
+            
+            # Check if detection is drowning
+            is_drowning = any(keyword in class_name.lower() for keyword in ['drown', 'drowning'])
             
             # Draw bounding box
-            is_drowning = 'drown' in class_name.lower()
             color = (0, 0, 255) if is_drowning else (0, 255, 0)
             thickness = 3 if is_drowning else 2
             
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
             
-            # Draw label with background
+            # Draw label
             label = f"{class_name}: {confidence:.2f}"
             label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
-            cv2.rectangle(frame, (x1, y1 - label_size[1] - 10), 
-                         (x1 + label_size[0], y1), color, -1)
-            cv2.putText(frame, label, (x1, y1 - 5), 
+            
+            # Ensure label fits in frame
+            label_y = max(y1, label_size[1] + 5)
+            cv2.rectangle(frame, (x1, label_y - label_size[1] - 5), 
+                         (x1 + label_size[0], label_y + 5), color, -1)
+            cv2.putText(frame, label, (x1, label_y), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
             
             # Count drowning detections
             if is_drowning and confidence > detection_config['confidence_threshold']:
                 drowning_count += 1
+                print(f"🚨 Drowning detected: {class_name} with confidence {confidence:.2f}")
                 
         except Exception as e:
-            print(f"❌ Error processing detection: {e}")
+            print(f"❌ Error processing detection {i}: {e}")
+            print(f"❌ Detection data: {detection}")
             continue
     
     # Determine if drowning detected
     drowning_detected = drowning_count > 0
     
-    # Add cloud status overlay
-    endpoint_used = cloud_result.get('endpoint_used', 'unknown')
-    cv2.putText(frame, f'Cloud: {endpoint_used.split("/")[-1]}', (10, 90), 
-               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+    # Add status overlay
+    cv2.putText(frame, f'Cloud: {total_objects} objects, {drowning_count} drowning', 
+               (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
     
     return frame, drowning_count, total_objects, drowning_detected
 
@@ -1025,33 +1075,37 @@ def toggle_cloud():
 def test_cloud_api():
     """Test cloud API connection"""
     try:
-        # Create a test frame
-        test_frame = np.zeros((320, 320, 3), dtype=np.uint8)
-        test_frame[:] = (100, 100, 100)  # Gray background
+        print("🧪 Testing cloud API connection...")
         
-        # Test the cloud API with the test frame
-        thread = threading.Thread(
-            target=send_frame_to_cloud, 
-            args=(test_frame, 'test'),
-            daemon=True
-        )
-        thread.start()
-        thread.join(timeout=10)  # Wait up to 10 seconds
+        # Create a more realistic test frame
+        test_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        test_frame[100:200, 100:200] = (255, 0, 0)  # Red square
+        test_frame[300:400, 400:500] = (0, 255, 0)  # Green square
         
-        if last_cloud_result and last_cloud_result.get('frame_id') == 'test':
+        # Add text to make it more interesting
+        cv2.putText(test_frame, 'TEST FRAME', (200, 240), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+        
+        # Test the cloud API
+        success = send_frame_to_cloud(test_frame, 'api_test')
+        
+        if success and last_cloud_result and last_cloud_result.get('frame_id') == 'api_test':
             return jsonify({
                 'success': True,
                 'message': 'Cloud API test successful',
                 'result': {
                     'endpoint_used': last_cloud_result.get('endpoint_used'),
                     'detections_count': len(last_cloud_result.get('detections', [])),
-                    'response_time': time.time() - last_cloud_result.get('timestamp', 0)
+                    'response_time': f"{time.time() - last_cloud_result.get('timestamp', 0):.2f}s",
+                    'frame_processed': last_cloud_result.get('processed_frame_size'),
+                    'raw_response_keys': list(last_cloud_result.keys())
                 }
             })
         else:
             return jsonify({
                 'success': False,
-                'message': 'Cloud API test failed - no response received'
+                'message': 'Cloud API test failed',
+                'error': last_cloud_result.get('error') if last_cloud_result else 'No response'
             })
             
     except Exception as e:
@@ -1059,6 +1113,17 @@ def test_cloud_api():
             'success': False,
             'message': f'Cloud API test error: {str(e)}'
         })
+
+@app.route('/api/cloud/debug')
+def debug_cloud():
+    """Debug endpoint to check cloud response format"""
+    return jsonify({
+        'last_cloud_result': last_cloud_result,
+        'cloud_processing': cloud_processing,
+        'cloud_enabled': CLOUD_ENABLED,
+        'api_url': CLOUD_API_URL,
+        'detection_config': detection_config
+    })
 
 if __name__ == '__main__':
     # Parse command line arguments for model loading
