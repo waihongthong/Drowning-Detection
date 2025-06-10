@@ -16,13 +16,12 @@ pip install ultralytics ncnn
 # Now convert your model
 yolo export model=best.pt format=ncnn
 
-📊 Cloud Frame 900: FPS: 15.2, Objects: 0
-10.207.200.119 - - [10/Jun/2025 07:33:43] "GET /api/status HTTP/1.1" 200 -
-❌ Cloud API error: 503 - Your space is in error, check its status on hf.co
-10.207.200.119 - - [10/Jun/2025 07:33:43] "GET /api/status HTTP/1.1" 200 -
-📊 Cloud Frame 930: FPS: 20.6, Objects: 0
-10.207.200.119 - - [10/Jun/2025 07:33:44] "GET /api/status HTTP/1.1" 200 -
-❌ Cloud API error: 503 - Your space is in error, check its status on hf.co
+📊 Cloud Frame 690: FPS: 3.9, Objects: 0
+❌ Cloud API error: 404 - {"detail":"Not Found"}
+10.207.200.119 - - [10/Jun/2025 08:27:37] "GET /api/status HTTP/1.1" 200 -
+10.207.200.119 - - [10/Jun/2025 08:27:38] "GET /api/status HTTP/1.1" 200 -
+❌ Cloud API error: 404 - {"detail":"Not Found"}
+
 
 
 
