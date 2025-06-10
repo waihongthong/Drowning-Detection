@@ -225,19 +225,29 @@ def load_yolo_model(model_path):
     """Load the YOLO model for drowning detection"""
     global model
     try:
-        if not os.path.exists(model_path):
-            print(f'❌ ERROR: Model path "{model_path}" is invalid or model was not found.')
+        if model_path.endswith('.pt'):
+            if not os.path.exists(model_path):
+                print(f'❌ ERROR: Model path "{model_path}" is invalid or model was not found.')
+                return False
+                
+            with model_lock:
+                model = YOLO(model_path)
+                labels = model.names
+                print(f"✅ Loaded YOLO model from {model_path}")
+                print(f"📊 Detection classes: {labels}")
+                return True
+        
+        # Handle NCNN format
+        elif model_path.endswith('.param') or 'ncnn' in model_path.lower():
+            print("⚠️ NCNN format detected. This requires OpenCV DNN backend.")
+            print("💡 For hybrid cloud mode, local model is optional.")
+            print("🌐 Cloud processing will handle AI detection.")
             return False
             
-        with model_lock:
-            model = YOLO(model_path)
-            labels = model.names
-            print(f"✅ Loaded YOLO model from {model_path}")
-            print(f"📊 Detection classes: {labels}")
-            return True
-    except Exception as e:
-        print(f"❌ Failed to load YOLO model: {e}")
-        return False
+        else:
+            print(f"❌ Unsupported model format: {model_path}")
+            print("💡 Supported formats: .pt (PyTorch)")
+            return False
 
 def filter_detections(detections, min_area=None, max_area=None):
     """Filter detections based on size"""
@@ -344,6 +354,10 @@ def process_detection(frame):
     global consecutive_drowning, drowning_confidences, model
     
     if model is None:
+        cv2.putText(frame, 'LOCAL MODEL: OFF', (10, 30), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+        cv2.putText(frame, 'CLOUD MODE: ACTIVE', (10, 60), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         return frame, 0, 0, False
     
     try:
