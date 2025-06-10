@@ -877,7 +877,7 @@ def delete_detection(detection_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     
-    @app.route('/api/cloud/status')
+@app.route('/api/cloud/status')
     def cloud_status():
         """Get cloud processing status"""
         return jsonify({
@@ -898,15 +898,7 @@ def delete_detection(detection_id):
             'message': f'Cloud processing {"enabled" if CLOUD_ENABLED else "disabled"}'
         })
 
-@app.route('/api/cloud/status')
-def cloud_status():
-    """Get cloud processing status"""
-    return jsonify({
-        'cloud_enabled': CLOUD_ENABLED,
-        'cloud_processing': cloud_processing,
-        'last_result_time': last_cloud_result.get('timestamp') if last_cloud_result else None,
-        'api_url': CLOUD_API_URL
-    })
+
 
 if __name__ == '__main__':
     # Parse command line arguments for model loading
