@@ -623,6 +623,7 @@ def stop_detection():
 @app.route('/api/model/load', methods=['POST'])
 def load_model():
     """Load YOLO model for detection"""
+    global detection_active
     try:
         data = request.get_json()
         model_path = data.get('model_path')
@@ -631,7 +632,15 @@ def load_model():
             return jsonify({'success': False, 'error': 'Model path is required'}), 400
         
         if load_yolo_model(model_path):
-            return jsonify({'success': True, 'message': f'Model loaded successfully from {model_path}'})
+            # Auto-start detection when model is loaded via API
+            detection_active = True
+            with status_lock:
+                detection_status['is_detecting'] = True
+            return jsonify({
+                'success': True, 
+                'message': f'Model loaded successfully from {model_path}',
+                'detection_started': True
+            })
         else:
             return jsonify({'success': False, 'error': 'Failed to load model'}), 500
             
