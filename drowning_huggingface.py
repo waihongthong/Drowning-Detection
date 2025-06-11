@@ -1124,7 +1124,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', help='Path to YOLO model file', required=False)
     parser.add_argument('--auto-start', help='Auto-start detection after loading model', 
-                       action='store_true', default=False)
+                       action='store_true', default=True)
     parser.add_argument('--test-mode', help='Run in test mode without camera', 
                        action='store_true', default=False)
     args = parser.parse_args()
