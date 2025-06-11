@@ -84,7 +84,7 @@ detection_config = {
 }
 
 # GPIO setup
-BUZZER_PIN = 23
+BUZZER_PIN = 18
 LED_PIN = 17
 
 if GPIO_AVAILABLE:
