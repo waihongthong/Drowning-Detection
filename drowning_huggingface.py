@@ -148,7 +148,7 @@ def send_frame_to_cloud(frame, frame_id):
         img_base64 = base64.b64encode(buffer).decode('utf-8')
         
             payload: {
-                "data": [img_base64]
+                "data": [img_base64],
                 "fn_index":0
             }
         
