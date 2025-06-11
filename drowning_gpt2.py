@@ -7,7 +7,7 @@ import time
 import threading
 import argparse
 from datetime import datetime
-from flask import Flask, Response, jsonify, request
+from flask import Flask, Response, jsonify, request, send_file
 from flask_cors import CORS
 import cv2
 import numpy as np
