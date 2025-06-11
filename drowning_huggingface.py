@@ -7,7 +7,7 @@ import time
 import threading
 import argparse
 from datetime import datetime
-from flask import Flask, Response, jsonify, request
+from flask import Flask, Response, jsonify, request, send_file
 from flask_cors import CORS
 import cv2
 import numpy as np
@@ -147,10 +147,9 @@ def send_frame_to_cloud(frame, frame_id):
         # Convert to base64
         img_base64 = base64.b64encode(buffer).decode('utf-8')
         
-            payload: {
-                "data": [img_base64],
-                "fn_index":0
-            }
+        payload: {
+            "data": [img_base64]
+        }
         
         # Try primary endpoint first
         try:
