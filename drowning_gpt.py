@@ -469,7 +469,7 @@ def generate_frames():
                     image_path = os.path.join(IMAGES_DIR, filename)
                     
                     # Save image with higher quality
-                    cv2.imwrite(image_path, frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                    cv2.imwrite(image_path, frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
                     print(f"📸 Drowning detection captured and saved as '{image_path}'")
                     
                     # Save to database
@@ -482,10 +482,6 @@ def generate_frames():
                     
                     # Trigger alarm
                     threading.Thread(target=activate_alarm, args=(10,), daemon=True).start()
-                    
-                elif not drowning_detected:
-                        # CRITICAL FIX: Reset drowning detection when no longer detected
-                        detection_status['drowning_detected'] = False
             
             # Calculate accurate FPS
             frame_end_time = time.perf_counter()
@@ -768,7 +764,7 @@ def test_connection():
         'camera_active': camera_active
     })
 
-def activate_alarm(duration=120):
+def activate_alarm(duration=10):
     """Activate alarm for specified duration"""
     try:
         buzzer.on()
