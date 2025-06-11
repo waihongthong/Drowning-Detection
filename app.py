@@ -1,4 +1,4 @@
-# app_local.py - Local testing version
+# app_local.py - Local testing version (FIXED)
 import gradio as gr
 import cv2
 import numpy as np
@@ -120,7 +120,9 @@ def gradio_detect(image, confidence_threshold=0.7):
         return f"❌ Error: {str(e)}", None
 
 # Create Gradio interface
-with gr.Blocks(title="Drowning Detection API - Local") as demo:
+demo = gr.Blocks(title="Drowning Detection API - Local")
+
+with demo:
     gr.Markdown("# 🏊‍♂️ Drowning Detection System (Local Testing)")
     gr.Markdown("Upload an image to detect potential drowning incidents using AI")
     
@@ -155,25 +157,21 @@ with gr.Blocks(title="Drowning Detection API - Local") as demo:
         gr.Markdown("""
         ## 🔌 API Usage (Local Testing)
         
-        **Endpoint**: `POST http://localhost:5000/detect`
+        **Note**: Custom API endpoints require Gradio Pro or separate FastAPI server.
+        For now, use the web interface above or create a separate FastAPI app.
         
-        **Request Body**:
-        ```json
-        {
-            "image": "base64_encoded_image_string",
-            "confidence_threshold": 0.7
-        }
-        ```
+        **Alternative**: Use Gradio's built-in API:
+        ```python
+        import requests
         
-        **Test Commands**:
-        ```bash
-        # Health check
-        curl http://localhost:5000/health
-        
-        # Detection test (you'll need a base64 image)
-        curl -X POST http://localhost:5000/detect \\
-          -H "Content-Type: application/json" \\
-          -d '{"image": "your_base64_image", "confidence_threshold": 0.7}'
+        # Using Gradio's API
+        response = requests.post(
+            "http://localhost:5000/api/predict",
+            json={
+                "data": [image_base64, confidence_threshold],
+                "fn_index": 0  # Index of your function
+            }
+        )
         ```
         """)
     
@@ -191,52 +189,6 @@ with gr.Blocks(title="Drowning Detection API - Local") as demo:
             }
         
         health_btn.click(fn=health_check, outputs=health_output)
-
-# Custom API endpoints
-@demo.fastapi_app.post("/detect")
-async def direct_detect_endpoint(request: dict):
-    """Direct API endpoint for /detect"""
-    try:
-        image_b64 = request.get("image", "")
-        confidence_threshold = request.get("confidence_threshold", 0.7)
-        
-        if not image_b64:
-            return {"success": False, "error": "No image provided", "detections": []}
-        
-        result = detect_drowning(image_b64, confidence_threshold)
-        return result
-        
-    except Exception as e:
-        return {"success": False, "error": str(e), "detections": []}
-
-@demo.fastapi_app.get("/health")
-async def health_endpoint():
-    """Health check endpoint"""
-    return {
-        "status": "healthy" if model is not None else "model_error",
-        "model_loaded": model is not None,
-        "timestamp": datetime.now().isoformat()
-    }
-
-@demo.fastapi_app.get("/api/cloud/status")
-async def cloud_status_endpoint():
-    """Cloud status endpoint (matching your curl test)"""
-    return {
-        "status": "healthy" if model is not None else "model_error",
-        "service": "drowning_detection",
-        "model_loaded": model is not None,
-        "timestamp": datetime.now().isoformat()
-    }
-
-@demo.fastapi_app.get("/api/cloud/test")
-async def cloud_test_endpoint():
-    """Cloud test endpoint (matching your curl test)"""
-    return {
-        "message": "API is working",
-        "service": "drowning_detection",
-        "endpoints": ["/detect", "/health", "/api/cloud/status", "/api/cloud/test"],
-        "timestamp": datetime.now().isoformat()
-    }
 
 if __name__ == "__main__":
     # Launch on port 5000 for local testing
