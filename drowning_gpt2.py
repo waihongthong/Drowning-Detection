@@ -482,6 +482,11 @@ def generate_frames():
                     
                     # Trigger alarm
                     threading.Thread(target=activate_alarm, args=(10,), daemon=True).start()
+                    
+                elif not drowning_detected and detection_status['drowning_detected']:
+                    # Clear drowning detection when no longer detected
+                    detection_status['drowning_detected'] = False
+                    print("✅ Drowning detection cleared")
             
             # Calculate accurate FPS
             frame_end_time = time.perf_counter()
