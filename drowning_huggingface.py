@@ -21,7 +21,7 @@ from threading import Thread
 import os
 import requests
 
-CLOUD_API_URL = "https://twhhhh-deepsave.hf.space/predict"  # Changed from /detect to /predict
+CLOUD_API_URL = "https://twhhhh-deepsave.hf.space/detect"  
 CLOUD_ENABLED = True
 PROCESS_EVERY_N_FRAMES = 5  # Reduced frequency to avoid overloading
 CLOUD_TIMEOUT = 8  # Increased timeout for better reliability
@@ -151,8 +151,10 @@ def send_frame_to_cloud(frame, frame_id):
         primary_endpoint = {
             'url': CLOUD_API_URL,  # https://twhhhh-deepsave.hf.space/predict
             'payload': {
-                "image": img_base64,
-                "confidence_threshold": detection_config['confidence_threshold']
+                "data": [img_base64],  # Some spaces expect array format
+                "parameters": {
+                    "confidence_threshold": detection_config['confidence_threshold']
+                }
             },
             'content_type': 'application/json'
         }
