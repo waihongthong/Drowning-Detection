@@ -134,7 +134,7 @@ def send_frame_to_cloud(frame, frame_id):
         
         # Fix 1: Consistent resize to match cloud API expectations
         # Test with your Hugging Face space to confirm the expected input size
-        small_frame = cv2.resize(frame, (640, 640)) 
+        small_frame = cv2.resize(frame, (640, 480)) 
         
         # Encode as JPEG with higher quality for better detection
         encode_params = [cv2.IMWRITE_JPEG_QUALITY, 85]  # Increased from 75
@@ -147,13 +147,14 @@ def send_frame_to_cloud(frame, frame_id):
         # Convert to base64
         img_base64 = base64.b64encode(buffer).decode('utf-8')
         
-        payload: {
-            "data": [img_base64]
+        payload = {
+            "data": img_base64,
+            "confidence_threshold": detection_config['confidence_threshold']
         }
         
         # Try primary endpoint first
         try:
-            print(f"🔄 Sending to: {primary_endpoint['url']}")
+            print(f"🔄 Sending to: {CLOUD_API_URL}")
             
             response = requests.post(
                     CLOUD_API_URL,
@@ -166,7 +167,6 @@ def send_frame_to_cloud(frame, frame_id):
             )
             
             print(f"📊 Response status: {response.status_code}")
-            print(f"📊 Response headers: {dict(response.headers)}")
             
             if response.status_code == 200:
                 try:
