@@ -1,4 +1,4 @@
-# app_local.py - Local testing version (FIXED)
+# app_local.py - Local testing version (FIXED - Updated for Gradio compatibility)
 import gradio as gr
 import cv2
 import numpy as np
@@ -119,10 +119,12 @@ def gradio_detect(image, confidence_threshold=0.7):
     except Exception as e:
         return f"❌ Error: {str(e)}", None
 
-# Create Gradio interface
-demo = gr.Blocks(title="Drowning Detection API - Local")
+def api_detect(image_b64, confidence_threshold=0.7):
+    """API-style function for programmatic access"""
+    return detect_drowning(image_b64, confidence_threshold)
 
-with demo:
+# Create Gradio interface
+with gr.Blocks(title="Drowning Detection API - Local") as demo:
     gr.Markdown("# 🏊‍♂️ Drowning Detection System (Local Testing)")
     gr.Markdown("Upload an image to detect potential drowning incidents using AI")
     
@@ -157,21 +159,43 @@ with demo:
         gr.Markdown("""
         ## 🔌 API Usage (Local Testing)
         
-        **Note**: Custom API endpoints require Gradio Pro or separate FastAPI server.
-        For now, use the web interface above or create a separate FastAPI app.
+        ### Option 1: Use the separate FastAPI server (api_server.py)
+        ```bash
+        # Run the FastAPI server
+        python api_server.py
         
-        **Alternative**: Use Gradio's built-in API:
+        # Then make requests to http://localhost:8000
+        ```
+        
+        ### Option 2: Use Gradio's built-in API
         ```python
         import requests
+        import base64
         
-        # Using Gradio's API
+        # First, convert your image to base64
+        with open("your_image.jpg", "rb") as img_file:
+            img_b64 = base64.b64encode(img_file.read()).decode()
+        
+        # Use Gradio's API (when this app is running)
         response = requests.post(
             "http://localhost:5000/api/predict",
             json={
-                "data": [image_base64, confidence_threshold],
-                "fn_index": 0  # Index of your function
+                "data": [img_b64, 0.7],  # [image_base64, confidence_threshold]
+                "fn_index": 0  # Index of the gradio_detect function
             }
         )
+        
+        result = response.json()
+        print(result)
+        ```
+        
+        ### Option 3: Direct function call (if importing this module)
+        ```python
+        from app_local import api_detect
+        
+        # Your base64 image string
+        result = api_detect(image_b64, confidence_threshold=0.7)
+        print(result)
         ```
         """)
     
@@ -184,11 +208,42 @@ with demo:
                 "status": "healthy" if model is not None else "model_error",
                 "model_loaded": model is not None,
                 "model_classes": list(model.names.values()) if model else [],
+                "gradio_version": gr.__version__,
                 "api_ready": True,
                 "timestamp": datetime.now().isoformat()
             }
         
         health_btn.click(fn=health_check, outputs=health_output)
+    
+    with gr.Tab("Test API"):
+        gr.Markdown("### Test the API functionality directly")
+        
+        with gr.Row():
+            with gr.Column():
+                test_image = gr.Image(type="pil", label="Test Image")
+                test_confidence = gr.Slider(0.1, 1.0, 0.7, label="Confidence")
+                test_btn = gr.Button("Test API Function")
+            
+            with gr.Column():
+                test_output = gr.JSON(label="API Response")
+        
+        def test_api_function(image, confidence):
+            if image is None:
+                return {"error": "No image provided"}
+            
+            # Convert to base64
+            buffered = io.BytesIO()
+            image.save(buffered, format="JPEG")
+            img_b64 = base64.b64encode(buffered.getvalue()).decode()
+            
+            # Test the API function
+            return api_detect(img_b64, confidence)
+        
+        test_btn.click(
+            fn=test_api_function,
+            inputs=[test_image, test_confidence],
+            outputs=test_output
+        )
 
 if __name__ == "__main__":
     # Launch on port 5000 for local testing
@@ -196,5 +251,5 @@ if __name__ == "__main__":
         server_name="0.0.0.0",
         server_port=5000,
         share=False,
-        show_api=True
+        show_api=True  # This enables Gradio's built-in API
     )
