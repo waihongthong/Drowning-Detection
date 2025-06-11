@@ -147,8 +147,9 @@ def send_frame_to_cloud(frame, frame_id):
         # Convert to base64
         img_base64 = base64.b64encode(buffer).decode('utf-8')
         
-            'payload': {
+            payload: {
                 "data": [img_base64]
+                "fn_index":0
             }
         
         # Try primary endpoint first
@@ -156,9 +157,9 @@ def send_frame_to_cloud(frame, frame_id):
             print(f"🔄 Sending to: {primary_endpoint['url']}")
             
             response = requests.post(
-               CLOUD_API_URL,
-                json=payload,
-                timeout=CLOUD_TIMEOUT,
+                    CLOUD_API_URL,
+                    json=payload,
+                    timeout=CLOUD_TIMEOUT,
                 headers={
                     'Content-Type': 'application/json',
                     'Accept': 'application/json'
@@ -177,7 +178,7 @@ def send_frame_to_cloud(frame, frame_id):
                     result['frame_id'] = frame_id
                     result['timestamp'] = time.time()
                     result['original_frame_shape'] = frame.shape
-                    result['endpoint_used'] = primary_endpoint['url']
+                    result['endpoint_used'] = CLOUD_API_URL
                     result['processed_frame_size'] = small_frame.shape
                     
                     last_cloud_result = result
