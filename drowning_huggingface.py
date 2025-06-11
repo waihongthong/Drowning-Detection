@@ -21,9 +21,9 @@ from threading import Thread
 import os
 import requests
 
-CLOUD_API_URL = "https://twhhhh-deepsave.hf.space/detect"  
+CLOUD_API_URL = "https://twhhhh-deepsave.hf.space/predict"  
 CLOUD_ENABLED = True
-PROCESS_EVERY_N_FRAMES = 5  # Reduced frequency to avoid overloading
+PROCESS_EVERY_N_FRAMES = 3  # Reduced frequency to avoid overloading
 CLOUD_TIMEOUT = 8  # Increased timeout for better reliability
 
 # Cloud processing variables
@@ -134,7 +134,7 @@ def send_frame_to_cloud(frame, frame_id):
         
         # Fix 1: Consistent resize to match cloud API expectations
         # Test with your Hugging Face space to confirm the expected input size
-        small_frame = cv2.resize(frame, (320, 320))  # Changed from (416, 416)
+        small_frame = cv2.resize(frame, (640, 640)) 
         
         # Encode as JPEG with higher quality for better detection
         encode_params = [cv2.IMWRITE_JPEG_QUALITY, 85]  # Increased from 75
@@ -147,29 +147,21 @@ def send_frame_to_cloud(frame, frame_id):
         # Convert to base64
         img_base64 = base64.b64encode(buffer).decode('utf-8')
         
-        # Fix 2: Simplified endpoint testing - focus on your working endpoint first
-        primary_endpoint = {
-            'url': CLOUD_API_URL,  # https://twhhhh-deepsave.hf.space/predict
             'payload': {
-                "data": [img_base64],  # Some spaces expect array format
-                "parameters": {
-                    "confidence_threshold": detection_config['confidence_threshold']
-                }
-            },
-            'content_type': 'application/json'
-        }
+                "data": [img_base64]
+            }
         
         # Try primary endpoint first
         try:
             print(f"🔄 Sending to: {primary_endpoint['url']}")
             
             response = requests.post(
-                primary_endpoint['url'],
-                json=primary_endpoint['payload'],
+               CLOUD_API_URL,
+                json=payload,
                 timeout=CLOUD_TIMEOUT,
                 headers={
                     'Content-Type': 'application/json',
-                    'User-Agent': 'RaspberryPi-DrowningDetector/1.0'
+                    'Accept': 'application/json'
                 }
             )
             
